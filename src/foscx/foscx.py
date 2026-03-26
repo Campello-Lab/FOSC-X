@@ -455,7 +455,7 @@ class FOSCX(BaseEstimator):
         self.cluster_tree_.compute_leaf_order_and_spans()
 
         if self.source != "JSON":
-            if self.quality_measure.casefold() in {"stability", "EOM"}:
+            if self.quality_measure.casefold() in {"stability", "eom"}:
                 self.keep_noise_quality = False
                 self.cluster_tree_.compute_stability(density=self.density)
 
