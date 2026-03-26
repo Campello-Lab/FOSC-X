@@ -19,11 +19,15 @@ pip install .
 ```python
 from foscx import FOSCX
 from sklearn.datasets import make_blobs
+from sklearn.cluster import AgglomerativeClustering
 
 X, _ = make_blobs(n_samples=300, centers=4, random_state=42)
 
-model = FOSCX(min_cluster_size=10)
-labels = model.fit_predict(X)
+Z = AgglomerativeClustering(n_clusters=None,distance_threshold=0, linkage="ward")
+
+model = FOSCX(top_M=5)
+model.fit(Z)
+print(model.candidates_)
 ```
 
 ## Dependencies
