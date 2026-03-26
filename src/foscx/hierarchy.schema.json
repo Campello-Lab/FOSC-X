@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FOSC cluster tree",
+  "type": "object",
+  "required": [
+    "Root_ID",
+    "condensed_simplified_tree",
+    "complete_tree",
+    "tree"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "Root_ID": {
+      "description": "ID string of the root node",
+      "type": "string",
+      "minLength": 1
+    },
+    "condensed_simplified_tree": {
+      "description": "Indicates whether the tree is condensed/simplified",
+      "type": "boolean"
+    },
+    "density_based": {
+      "description": "Optional flag for density-based trees",
+      "type": "boolean"
+    },
+    "complete_tree": {
+      "description": "Indicates whether the complete tree is present",
+      "type": "boolean"
+    },
+    "data": {
+      "description": "Optional data holder (may be present when tree saved with embedding/data).",
+      "type": ["array", "object", "null"]
+    },
+    "tree": {
+      "description": "Map of node-id → node-object. Node IDs are strings.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[^\\s]+$": {
+          "type": "object",
+          "required": [ "clusteval", "children", "parent" ],
+          "additionalProperties": false,
+          "properties": {
+            "clusteval": {
+              "description": "Cluster quality/evaluation value (decimal number).",
+              "oneOf": [
+                { "type": "number" },
+                { "type": "string", "pattern": "^(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$" }
+              ]
+            },
+            "children": {
+              "description": "List of child node IDs (strings). Empty array if leaf.",
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true
+            },
+            "parent": {
+              "description": "Parent node id as string; may be empty string for root.",
+              "type": "string"
+            },
+            "cluster_size": {
+              "description": "Optional cluster size (integer).",
+              "type": ["integer", "string"],
+              "pattern": "^[0-9]+$"
+            },
+            "noise": {
+              "description": "Optional flag marking node as noise.",
+              "type": "boolean"
+            },
+            "distance": {
+              "description": "Optional numeric distance / density value for node.",
+              "oneOf": [
+                { "type": "number" },
+                { "type": "string", "pattern": "^(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$" },
+                {
+                  "type": "array",
+                  "items": { "type": "number" },
+                  "minItems": 0
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

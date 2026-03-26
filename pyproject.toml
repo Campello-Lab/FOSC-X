@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "foscx"
+version = "0.1.0"
+description = "Framework for Optimal Selection of Clusters from hierarchical cluster trees"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Connor Simpson" }
+]
+requires-python = ">=3.9"
+keywords = ["clustering", "hierarchical-clustering", "machine-learning", "data-science"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+dependencies = [
+    "numpy>=1.21",
+    "scipy>=1.8",
+    "scikit-learn>=1.1",
+    "numba>=0.57",
+    "pandas>=1.5",
+    "matplotlib>=3.6",
+    "umap-learn>=0.5",
+    "jsonschema>=4.0"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "black>=24", "ruff>=0.5"]
+test = ["pytest>=7", "hdbscan>=0.8"]
+
+[project.urls]
+Homepage = "https://github.com/connor-simpson/foscx"
+Repository = "https://github.com/connor-simpson/foscx"
+Issues = "https://github.com/connor-simpson/foscx/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["foscx*"]
+
+[tool.setuptools.package-data]
+"foscx" = ["*.json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[project.scripts]
+foscx = "foscx.foscx:main"
