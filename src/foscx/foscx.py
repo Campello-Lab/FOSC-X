@@ -409,25 +409,57 @@ class FOSCX(BaseEstimator):
             self.source = "JSON"
             self.quality_measure = "precomputed"
 
-        # SCIPY
+        # SCIPY or Condensed
         else:
+            if isinstance(X, pd.DataFrame):
+                X_arr = X.values
+            else:
+                X_arr = X
+
             try:
-                is_linkage = is_valid_linkage(X, throw=True)
-            except Exception as exc:
-                raise TypeError(
-                    "Unsupported input type for X. Expected HDBSCAN object, sklearn "
-                    "AgglomerativeClustering/HDBSCAN object, SciPy linkage matrix, JSON dict, "
-                    "JSON string, or JSON file path."
-                ) from exc
+                X_arr = structured_to_unstructured(X_arr, dtype=np.float64)
+            except Exception:
+                X_arr = np.asarray(X_arr)
+
+            # Try SciPy linkage first
+            try:
+                is_linkage = is_valid_linkage(X_arr, throw=False)
+            except Exception:
+                is_linkage = False
+
             if is_linkage:
-                tree = X
+                tree = X_arr
                 self.source = "SCIPY"
                 self.density = getattr(self, "density", False)
+
+            elif X_arr.ndim == 2 and X_arr.shape[1] == 4:
+                # Treat as condensed tree
+                tree = X_arr
+                self.source = "CONDENSED"
+
+                if self.min_cluster_size is not None and self.min_cluster_size > 1:
+                    warnings.warn(
+                        "Input appears to already be a condensed tree; "
+                        "min_cluster_size > 1 will be ignored.",
+                        stacklevel=2,
+                    )
+                    self.min_cluster_size = None
+
+                self.density = getattr(self, "density", False)
+                self.condensed_simplified_tree = True
+                self.set_leaf_noise = True
+
+            else:
+                raise TypeError(
+                    "Unsupported input type for X. Expected HDBSCAN object, sklearn "
+                    "AgglomerativeClustering/HDBSCAN object, SciPy linkage matrix, "
+                    "condensed tree (n,4), JSON dict/string/path."
+                )
 
         if self.source is None:
             raise RuntimeError("Failed to infer hierarchy source from input X.")
 
-        if self.source != "JSON":
+        if self.source not in ("JSON", "CONDENSED"):
             # If min_samples set or HDBSCAN, condense then load
             if (
                 self.min_cluster_size is not None and self.min_cluster_size > 1
@@ -450,12 +482,19 @@ class FOSCX(BaseEstimator):
                 tree, density=self.density
             )
 
+        if self.source == "CONDENSED":
+            #tree = np.asarray(tree).T
+            self.cluster_tree_ = Cluster_Tree._from_hdbscan_condensed(
+                tree, density=self.density
+            )
+
+
         self.cluster_tree_._compute_tree_depths()
         self.cluster_tree_._build_tree_ancestor_table()
         self.cluster_tree_.compute_leaf_order_and_spans()
 
         if self.source != "JSON":
-            if self.quality_measure.casefold() in {"stability", "eom"}:
+            if self.quality_measure.casefold() in {"stability", "EOM"}:
                 self.keep_noise_quality = False
                 self.cluster_tree_.compute_stability(density=self.density)
 
