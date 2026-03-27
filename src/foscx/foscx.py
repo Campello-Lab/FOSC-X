@@ -21,7 +21,7 @@ from .plotting.plot_functions import (
     _plot_tree,
 )
 
-with resources.open_text("fosc", "hierarchy.schema.json") as f:
+with resources.open_text("foscx", "hierarchy.schema.json") as f:
     FOSC_JSON_SCHEMA = json.load(f)
 
 FOSC_SCHEMA_VALIDATOR = Draft7Validator(FOSC_JSON_SCHEMA)
