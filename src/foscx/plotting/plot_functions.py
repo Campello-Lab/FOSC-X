@@ -578,7 +578,7 @@ def _plot_fosc(
             normalized.append([cand])
 
     label_sets = [
-        fosc.get_labels(Nodes=cand)
+        fosc.get_labels(nodes=cand)
         for cand in normalized
     ]
 
