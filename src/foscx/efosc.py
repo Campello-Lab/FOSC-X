@@ -1,4 +1,4 @@
-from numba import njit
+from ._numba import njit
 import numpy as np
 
 _NEG_INF = -1e300
@@ -646,7 +646,6 @@ def _efosc(children_flat, children_off, post, clusteval, is_noise,
     Returns: (root_scores, root_ncs, sel_nodes, sel_counts, root_k)
     """
     N = clusteval.shape[0]
-
     # FAST PATH: top_c == 1, kmin <= 2, kmax >= N
     if top_c == 1 and kmin <= 2 and kmax >= n_leaves:
         best_score = np.full(N, _NEG_INF, dtype=np.float64)

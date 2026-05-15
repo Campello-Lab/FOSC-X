@@ -1,15 +1,16 @@
-import os
-from pathlib import Path
-
-def _ensure_numba_cache():
-    if os.environ.get("NUMBA_CACHE_DIR"):
-        return
-
-    cache_dir = Path.home() / ".cache" / "foscx" / "numba"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    os.environ["NUMBA_CACHE_DIR"] = str(cache_dir)
+from ._numba import set_numba_enabled
 
 
-from .foscx import FOSCX
+def __getattr__(name):
 
-__all__ = ["FOSCX"]
+    if name == "FOSCX":
+        from .foscx import FOSCX
+        return FOSCX
+
+    raise AttributeError(name)
+
+
+__all__ = [
+    "FOSCX",
+    "set_numba_enabled",
+]
