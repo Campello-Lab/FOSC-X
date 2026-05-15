@@ -1,18 +1,39 @@
 # fosc/plotting/plot_functions.py
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import matplotlib.cm as cm
-from matplotlib.widgets import Slider
-from matplotlib.patches import Ellipse
 import warnings
 
-try:
-    from umap import UMAP as _UMAP
-    _UMAP_AVAILABLE = True
-except Exception:
-    _UMAP_AVAILABLE = False
-from sklearn.decomposition import PCA
+
+def _get_matplotlib():
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    import matplotlib.cm as cm
+    from matplotlib.widgets import Slider
+    from matplotlib.patches import Ellipse
+
+    return (
+        plt,
+        mcolors,
+        cm,
+        Slider,
+        Ellipse
+    )
+
+
+def _get_pca():
+    from sklearn.decomposition import PCA
+    return PCA
+
+
+def _get_umap():
+
+    try:
+        from umap import UMAP as _UMAP
+        _UMAP_AVAILABLE = True
+        return _UMAP, _UMAP_AVAILABLE
+
+    except Exception:
+        _UMAP_AVAILABLE = False
+        return None, _UMAP_AVAILABLE
 
 def _plot_tree(
     tree,
@@ -25,6 +46,7 @@ def _plot_tree(
     root_offset=1.0,
     default_distance=1.0,
 ):
+    plt, mcolors, cm, Slider, Ellipse = _get_matplotlib()
     fig, ax = plt.subplots(figsize=figsize)
 
     parent = tree.parent
@@ -187,7 +209,7 @@ def plot_tree_base_fast_old(
     default_distance : float
         Default distance increment for fabricated distances.
     """
-
+    plt, mcolors, cm, Slider, Ellipse = _get_matplotlib()
     fig, ax = plt.subplots(figsize=figsize)
 
     parent = tree.parent
@@ -319,7 +341,7 @@ def _interactive_highlight(
     tree : FastHierarchy or None
         Optional, used only for richer click annotations
     """
-
+    plt, mcolors, cm, Slider, Ellipse = _get_matplotlib()
     if not selections:
         plt.show()
         return
@@ -516,14 +538,17 @@ def _plot_fosc(
     show : bool
         Whether to show the plot immediately.
     """
-
+    plt, mcolors, cm, Slider, Ellipse = _get_matplotlib()
+    PCA = _get_pca()
+    if projection == "umap":
+        _UMAP, _UMAP_AVAILABLE = _get_umap()
     # ---------------------------
     # Validate fitted estimator
     # ---------------------------
-    if not hasattr(fosc, "candidate_Clist_") or not hasattr(fosc, "cluster_tree_"):
+    if not hasattr(fosc, "candidate_nodes_") or not hasattr(fosc, "cluster_tree_"):
         raise ValueError(
             "Provided FOSC instance does not appear to be fitted "
-            "(missing candidate_Clist_ or cluster_tree_)."
+            "(missing candidate_nodes_ or cluster_tree_)."
         )
 
     # ---------------------------
@@ -565,9 +590,9 @@ def _plot_fosc(
     # ---------------------------
     # Prepare candidate label sets
     # ---------------------------
-    candidates = fosc.candidate_Clist_
+    candidates = fosc.candidate_nodes_
     if not candidates:
-        raise ValueError("No candidate solutions found in fosc.candidate_Clist_.")
+        raise ValueError("No candidate solutions found in fosc.candidate_nodes_.")
 
     # Normalize: ensure list[list[node_id]]
     normalized = []
