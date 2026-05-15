@@ -31,7 +31,6 @@ dependencies = [
     "numpy>=1.21",
     "scipy>=1.8",
     "scikit-learn>=1.1",
-    "numba>=0.57",
     "pandas>=1.5",
     "matplotlib>=3.6",
     "umap-learn>=0.5",
@@ -39,6 +38,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+numba = ["numba>=0.57"]
 dev = ["pytest>=7", "black>=24", "ruff>=0.5"]
 test = ["pytest>=7", "hdbscan>=0.8"]
 
