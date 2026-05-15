@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from numba import njit
+from .._numba import njit
 import numpy as np
 import math
 

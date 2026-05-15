@@ -1,7 +1,7 @@
 # Functions adapted from fast_hdbscan package
 
 import numpy as np
-from numba import njit
+from .._numba import njit
 
 @njit(cache=True)
 def _bfs_from_hierarchy(hierarchy, bfs_root, num_points):

@@ -23,7 +23,8 @@ from .tree_build import (
 
 from .modularity import _compute_modularity
 from .pfce import _compute_PFCE
-
+from .B3Measure import B3_F_Measure
+from .constraint_score import compress_constraints_, constraint_scores_
 
 
 
@@ -358,6 +359,34 @@ class Cluster_Tree:
         )
         self.clusteval = PFCE_scores
 
+    def compute_B3(self, GT_labels):
+        """
+        Compute the semi-supervised Bcubed measure of cluster evaluation.
+        """
+        B3scores = B3_F_Measure(
+            cluster_tree = self ,
+            labels = GT_labels,
+            N_nodes = self.N)
+        
+        if self.clusteval is not None:
+            self.clusteval = np.round(B3scores, 12) + 1e-12 * self.clusteval/max(self.clusteval)
+        else:
+            self.clusteval = B3scores
+
+    def compute_constraint_score(self, constraints):
+        """
+        Compute the semi-supervised measure using must-link and must-not-link constraints.
+        """
+        compresed_constraints = compress_constraints_(constraints, max(self.sizes))
+
+        scores = constraint_scores_(self, compresed_constraints)
+
+        if self.clusteval is not None:
+            self.clusteval = np.round(scores, 12) + 1e-12 * self.clusteval/max(self.clusteval)
+        else:
+            self.clusteval = scores
+
+
     def set_noise_quality(self,keep_noise_quality):
         """
         Set quality of noise nodes to zero if keep_noise_quality is False.
@@ -458,9 +487,9 @@ class Cluster_Tree:
         return leaf_order, node_start, node_end
     
     
-    def get_node_labels(self, node_id):
+    def get_node_indices(self, node_id):
         """
-        Return a NumPy *view* of the leaf labels for node_id (no copy).
+        Return a NumPy *view* of the leaf indices for node_id (no copy).
         """
         #if not hasattr(self, "leaf_order") or not hasattr(self, "node_start") or not hasattr(self, "node_end"):
         #    self.compute_leaf_order_and_spans()

@@ -6,7 +6,7 @@ Created on Fri Dec  5 16:44:17 2025
 """
 
 import numpy as np
-from numba import njit
+from .._numba import njit
 
 @njit(cache=True)
 def _compute_leaf_noise_and_nonnoise_siblings(

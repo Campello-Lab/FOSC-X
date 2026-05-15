@@ -10,11 +10,11 @@ import warnings
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, issparse
 from sklearn.metrics.pairwise import cosine_similarity
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from numba import njit
+from .._numba import njit
 
 from .tree_numba import _lca
 
@@ -46,12 +46,20 @@ def _compute_modularity(c_tree, X, min_samples, *, metric='euclidean', HDBSCAN=T
     """
     # Build k-NN graph from data X
 
+    if metric == 'precomputed_similarity':
+        if not isinstance(X, (np.ndarray, csr_matrix)):
+            raise ValueError("For metric='precomputed_similarity', X must be a numpy array or sparse matrix.")
+        if X.shape[0] != X.shape[1]:
+            raise ValueError("For metric='precomputed_similarity', X must be square (n_samples x n_samples).")
+        if issparse(X):
+            sigma = X.tocsr()
+        else:
+            sigma = csr_matrix(X)
+    else:
+        k_graph = _build_knn_graph(X, min_samples, metric=metric, HDBSCAN=HDBSCAN)
+        # Compute structural similarity matrix (sparse)
+        sigma = cosine_similarity(k_graph, dense_output=False)
 
-    k_graph = _build_knn_graph(X, min_samples, metric=metric, HDBSCAN=HDBSCAN)
-
-
-    # Compute structural similarity matrix (sparse)
-    sigma = cosine_similarity(k_graph, dense_output=False)
     sigma.setdiag(0)            # zero the diagonal
     sigma.eliminate_zeros()     # remove explicit zeros from storage
 
