@@ -119,6 +119,7 @@ def _condense_tree(hierarchy, min_cluster_size=10, max_cluster_size=np.inf, samp
         right_count = np.float32(hierarchy[right - num_points, 3]) if right >= num_points else sample_weights[right]
 
         # Fast-paths kept in original order for performance
+        
         if left < num_points and right_count >= min_cluster_size:
             relabel[right] = parent_node
             parents[idx] = parent_node
@@ -271,3 +272,48 @@ def _scipy_to_condensed(hierarchy):
     # Return slices (copied) for safe use outside numba
     return parents[:out_idx].copy(), children[:out_idx].copy(), distances[:out_idx].copy(), child_sizes[:out_idx].copy()
 
+@njit(cache=True)
+def _scipy_to_condensed_2(hierarchy):
+
+    n_internal = hierarchy.shape[0]
+
+    if n_internal == 0:
+        return (
+            np.empty(0, dtype=np.int64),
+            np.empty(0, dtype=np.int64),
+            np.empty(0, dtype=np.float64),
+            np.empty(0, dtype=np.float32),
+        )
+
+    num_points = n_internal + 1
+
+    parents = np.empty(2 * n_internal, dtype=np.int64)
+    children = np.empty(2 * n_internal, dtype=np.int64)
+    distances = np.empty(2 * n_internal, dtype=np.float64)
+    child_sizes = np.empty(2 * n_internal, dtype=np.float32)
+
+    out = 0
+
+    for i in range(n_internal):
+
+        parent = num_points + i
+
+        left = int(hierarchy[i, 0])
+        right = int(hierarchy[i, 1])
+
+        dist = float(hierarchy[i, 2])
+
+        for child in (left, right):
+
+            parents[out] = parent
+            children[out] = child
+            distances[out] = dist
+
+            if child < num_points:
+                child_sizes[out] = 1.0
+            else:
+                child_sizes[out] = hierarchy[child - num_points, 3]
+
+            out += 1
+
+    return parents, children, distances, child_sizes
