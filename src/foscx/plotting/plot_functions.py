@@ -17,6 +17,7 @@ import warnings
 import numpy as np
 
 
+
 # ---------------------------------------------------------------------------
 # Lazy imports
 # ---------------------------------------------------------------------------
@@ -45,11 +46,11 @@ def _get_umap():
 
 def _get_tsne():
     # Prefer openTSNE (much faster); fall back to sklearn.
-    try:
-        from openTSNE import TSNE as _TSNE
-        return _TSNE, "opentsne"
-    except Exception:
-        pass
+    #try:
+    #    from openTSNE import TSNE as _TSNE
+    #    return _TSNE, "opentsne"
+    #except Exception:
+    #    pass
     try:
         from sklearn.manifold import TSNE as _TSNE
         return _TSNE, "sklearn"
@@ -105,7 +106,7 @@ def get_scatter_data(
     umap_min_dist: float = 0.1,
     umap_n_epochs: int = 150,
     tsne_perplexity: float = 30.0,
-    tsne_n_iter: int = 500,
+    tsne_n_iter: int = 1000,
     random_state=None,
 ):
     """Pre-compute the 2-D projection and per-solution label arrays.
@@ -201,7 +202,7 @@ def get_scatter_data(
                 model = _TSNE(
                     n_components=2,
                     perplexity=tsne_perplexity,
-                    n_iter=tsne_n_iter,
+                    max_iter=tsne_n_iter,
                     method="barnes_hut",
                     random_state=random_state,
                 )
@@ -233,13 +234,15 @@ def get_scatter_data(
 
     label_sets = [fosc.get_labels(nodes=cand) for cand in normalised]
     color_maps = [_build_color_map(labels) for labels in label_sets]
+    qualities  = list(getattr(fosc, "candidate_quality_", [None] * len(normalised)))
 
     return {
-        "XY": XY,
+        "XY":        XY,
         "label_sets": label_sets,
         "candidates": normalised,
         "projection": actual_projection,
         "color_maps": color_maps,
+        "qualities":  qualities,
     }
 
 
@@ -286,12 +289,15 @@ def plot_fosc_solution(
     color_map  = scatter_data["color_maps"][solution_idx]
     n_sol      = len(scatter_data["label_sets"])
     proj_name  = scatter_data["projection"].upper()
+    quality    = scatter_data.get("qualities", [None] * n_sol)[solution_idx]
 
     rgba = _labels_to_rgba(labels, color_map)
 
     unique_labels = np.unique(labels)
     n_clusters    = int(np.sum(unique_labels != -1))
     n_noise       = int(np.sum(np.asarray(labels) == -1))
+
+    quality_str = f"   ·   quality {quality:.3f}" if quality is not None else ""
 
     if axis is None:
         fig, ax = plt.subplots(figsize=figsize)
@@ -333,9 +339,10 @@ def plot_fosc_solution(
     ax.set_xlabel(x_label, fontsize=10, color="#444444")
     ax.set_ylabel(y_label, fontsize=10, color="#444444")
     ax.set_title(
-        f"Solution {solution_idx + 1} / {n_sol}   —   "
-        f"{n_clusters} cluster{'s' if n_clusters != 1 else ''}  "
-        f"({n_noise} noise)",
+        f"Solution {solution_idx + 1} / {n_sol}   ·   "
+        f"{n_clusters} cluster{'s' if n_clusters != 1 else ''}   ·   "
+        f"{n_noise} noise"
+        f"{quality_str}",
         fontsize=11,
         color="#222222",
         pad=8,
@@ -362,15 +369,17 @@ def interactive_fosc(
     tsne_perplexity: float = 30.0,
     tsne_n_iter: int = 500,
     random_state=None,
-    figsize: tuple = (7, 6),
+    figsize: tuple = (7, 6.3),
     point_size: float = 8.0,
     alpha: float = 0.85,
     scatter_data: dict | None = None,
 ):
     """Interactive ipywidgets slider for browsing FOSC candidate solutions.
 
-    The 2-D projection is computed **once** (or supplied via *scatter_data*);
-    only colours are updated on each slider move.
+    The 2-D projection is computed **once** (or supplied via *scatter_data*).
+    The figure is created once and kept alive; only scatter colours and text
+    are updated on each slider move — no redraw, no flicker.  The slider sits
+    inside the figure axes so the whole thing is one cohesive widget.
 
     Parameters
     ----------
@@ -387,7 +396,8 @@ def interactive_fosc(
     random_state : int or None
         Seed for reproducibility.
     figsize : tuple
-        Figure size.
+        Figure size.  The default is slightly taller than the static plot to
+        accommodate the built-in slider row.
     point_size : float
         Marker size (points²).
     alpha : float
@@ -398,15 +408,18 @@ def interactive_fosc(
 
     Returns
     -------
-    slider : ipywidgets.IntSlider
+    widget : ipywidgets.VBox
+        The composite widget (figure + slider).  Assign to a variable to keep
+        a reference; it is also displayed automatically.
     """
     try:
         import ipywidgets as widgets
-        from IPython.display import display, clear_output
+        from IPython.display import display
+        import matplotlib.pyplot as plt
+        import io, base64
     except ImportError as exc:
         raise ImportError(
-            "ipywidgets is required for interactive_fosc. "
-            "Install it with `pip install ipywidgets`."
+            "ipywidgets and matplotlib are required for interactive_fosc."
         ) from exc
 
     # ---- pre-compute once ----
@@ -424,56 +437,103 @@ def interactive_fosc(
         )
 
     n_solutions = len(scatter_data["label_sets"])
+    XY          = scatter_data["XY"]
 
-    # ---- widgets ----
-    output = widgets.Output()
-    info   = widgets.HTML()
+    # ---- build figure once ----
+    fig, ax = plt.subplots(figsize=figsize)
+    fig.subplots_adjust(left=0.10, right=0.97, top=0.93, bottom=0.12)
 
+    # ---- initial scatter (solution 0) ----
+    rgba0 = _labels_to_rgba(scatter_data["label_sets"][0], scatter_data["color_maps"][0])
+
+    ax.set_facecolor("#f5f5f5")
+    ax.grid(True, color="white", linewidth=0.9, linestyle="-", zorder=0)
+    ax.set_axisbelow(True)
+    for spine in ax.spines.values():
+        spine.set_edgecolor("#cccccc")
+        spine.set_linewidth(0.8)
+
+    sc = ax.scatter(
+        XY[:, 0], XY[:, 1],
+        s=point_size, c=rgba0, alpha=alpha,
+        linewidths=0.0, zorder=3,
+    )
+
+    x_label, y_label = (
+        ("UMAP 1", "UMAP 2")        if scatter_data["projection"] == "umap" else
+        ("PC 1",   "PC 2")          if scatter_data["projection"] == "pca"  else
+        ("Feature 1", "Feature 2")
+    )
+    ax.set_xlabel(x_label, fontsize=9, color="#555555")
+    ax.set_ylabel(y_label, fontsize=9, color="#555555")
+    ax.tick_params(colors="#777777", labelsize=7)
+
+    def _make_title(idx):
+        labels     = scatter_data["label_sets"][idx]
+        n_clusters = int(np.sum(np.unique(labels) != -1))
+        n_noise    = int(np.sum(np.asarray(labels) == -1))
+        quality    = scatter_data.get("qualities", [None] * n_solutions)[idx]
+        quality_str = f"   ·   quality {quality:.3f}" if quality is not None else ""
+        return (
+            f"Solution {idx + 1} / {n_solutions}"
+            f"   ·   {n_clusters} cluster{'s' if n_clusters != 1 else ''}"
+            f"   ·   {n_noise} noise"
+            f"{quality_str}"
+        )
+
+    title_obj = ax.set_title(_make_title(0), fontsize=10, color="#222222", pad=6)
+
+    # ---- render figure to PNG, embed as ipywidgets.Image ----
+    _SAVE_DPI = 120
+    # Widget pixel width must match the saved PNG exactly (figsize * dpi).
+    _px_w = int(figsize[0] * _SAVE_DPI)
+    _widget_w = f"{_px_w}px"
+
+    def _fig_to_image():
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=_SAVE_DPI, bbox_inches="tight")
+        buf.seek(0)
+        return buf.read()
+
+    img_widget = widgets.Image(
+        value=_fig_to_image(),
+        format="png",
+        layout=widgets.Layout(width=_widget_w, max_width=_widget_w),
+    )
+
+    # ---- ipywidgets slider (invisible driver — UI is the in-figure track) ----
     slider = widgets.IntSlider(
         value=0,
         min=0,
         max=n_solutions - 1,
         step=1,
-        description="Solution",
+        description=f"Solution  (1–{n_solutions})",
         continuous_update=False,
         style={"description_width": "initial"},
-        layout=widgets.Layout(width="500px"),
+        layout=widgets.Layout(width=_widget_w),
     )
 
-    def redraw(idx: int):
-        labels    = scatter_data["label_sets"][idx]
-        n_clusters = int(np.sum(np.unique(labels) != -1))
-        n_noise    = int(np.sum(np.asarray(labels) == -1))
+    def _update(change):
+        idx   = change["new"]
+        rgba  = _labels_to_rgba(scatter_data["label_sets"][idx],
+                                scatter_data["color_maps"][idx])
+        sc.set_facecolors(rgba)
+        sc.set_edgecolors(rgba)
+        title_obj.set_text(_make_title(idx))
+        img_widget.value = _fig_to_image()
 
-        with output:
-            clear_output(wait=True)
-            fig, ax = plot_fosc_solution(
-                scatter_data,
-                solution_idx=idx,
-                figsize=figsize,
-                point_size=point_size,
-                alpha=alpha,
-                show=False,
-            )
-            import matplotlib.pyplot as plt
-            plt.tight_layout()
-            plt.show()
-            plt.close(fig)
+    slider.observe(_update, names="value")
 
-        info.value = (
-            f"<b>Solution:</b>&nbsp;{idx + 1} / {n_solutions}"
-            f"&nbsp;&nbsp;&nbsp;"
-            f"<b>Clusters:</b>&nbsp;{n_clusters}"
-            f"&nbsp;&nbsp;"
-            f"<b>Noise:</b>&nbsp;{n_noise}"
-        )
-
-    slider.observe(lambda change: redraw(change["new"]), names="value")
-
-    display(widgets.VBox([slider, info, output]))
-    redraw(0)
-
-    return slider
+    composite = widgets.VBox(
+        [img_widget, slider],
+        layout=widgets.Layout(
+            width=_widget_w,
+            flex="0 0 auto",
+        ),
+    )
+    plt.close(fig)   # prevent a second bare figure appearing in the notebook
+    display(composite)
+    return composite
 
 
 # ---------------------------------------------------------------------------

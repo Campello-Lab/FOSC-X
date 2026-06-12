@@ -769,8 +769,9 @@ def clear_selected_clusters(artists):
 # ===========================================================================
 
 def interactive_condensed(
-    condensed_tree,
+    tree_or_fosc,
     solutions=None,
+    qualities=None,
     binary_tree=False,
     figsize=(10, 8),
     label_clusters=False,
@@ -784,13 +785,28 @@ def interactive_condensed(
 
     Parameters
     ----------
-    condensed_tree : numpy recarray
-        Fields: ``parent``, ``child``, ``child_size``, and either
-        ``distance`` or ``lambda_val`` (auto-detected).
+    tree_or_fosc : numpy recarray or FOSC object
+        Either a condensed-tree recarray (fields: ``parent``, ``child``,
+        ``child_size``, and ``distance`` or ``lambda_val``), **or** a fitted
+        FOSC object.  When a FOSC object is passed, ``solutions``,
+        ``qualities``, and the condensed tree are extracted automatically:
+
+        .. code-block:: python
+
+            proxy     = ClusterTreeProxy(fosc.cluster_tree_, density=fosc.density)
+            solutions = fosc.candidate_nodes_
+            qualities = fosc.candidate_quality_
+
+        Explicit *solutions* / *qualities* arguments are ignored when a FOSC
+        object is supplied.
     solutions : list[list[int]] or list[int] or None, optional
         Each element is a list of cluster node-ids for one solution.
         A single flat list (one solution) is wrapped automatically.
         ``None`` or ``[]`` renders the tree with no highlights and no slider.
+        Ignored when *tree_or_fosc* is a FOSC object.
+    qualities : list[float] or None, optional
+        Per-solution quality scores.  Shown in the figure title and slider.
+        Ignored when *tree_or_fosc* is a FOSC object.
     binary_tree : bool, optional
         ``False`` (default) → non-binary icicle plot.
         ``True``            → binary dendrogram plot.
@@ -804,12 +820,12 @@ def interactive_condensed(
 
     Returns
     -------
-    slider : ipywidgets.IntSlider or None
+    composite : ipywidgets.VBox or None
         ``None`` when *solutions* is empty/None (no slider is shown).
     """
     try:
         import ipywidgets as widgets
-        from IPython.display import display, clear_output
+        from IPython.display import display
     except ImportError as e:
         raise ImportError(
             "ipywidgets is required for interactive plotting. "
@@ -817,8 +833,17 @@ def interactive_condensed(
         ) from e
 
     # ------------------------------------------------------------------
-    # Normalise solutions
+    # Resolve condensed_tree, solutions and qualities from input type
     # ------------------------------------------------------------------
+    if hasattr(tree_or_fosc, "cluster_tree_"):
+        # FOSC object — extract everything automatically
+        from .cluster_tree_proxy import ClusterTreeProxy
+        fosc         = tree_or_fosc
+        condensed_tree = ClusterTreeProxy(fosc.cluster_tree_, density=fosc.density)
+        solutions    = list(getattr(fosc, "candidate_nodes_",  []))
+        qualities    = list(getattr(fosc, "candidate_quality_", [None] * len(solutions)))
+    else:
+        condensed_tree = tree_or_fosc
     if solutions is None or (hasattr(solutions, '__len__') and len(solutions) == 0):
         solutions = []
     elif solutions and not isinstance(solutions[0], (list, tuple, np.ndarray)):
@@ -845,57 +870,101 @@ def interactive_condensed(
         _plot_fn   = lambda ax: plot_condensed_nb(condensed_tree, plot_data, axis=ax, **nb_plot_kwargs)
         _select_fn = plot_selected_nb
 
+    import io
+
+    # ------------------------------------------------------------------
+    # Build the figure once — tree is static, only ellipses change
+    # ------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=figsize)
+    fig.subplots_adjust(top=0.93)
+    _plot_fn(ax)
+
+    _SAVE_DPI = 120
+    # Widget pixel width must match the saved PNG exactly (figsize * dpi).
+    _px_w = int(figsize[0] * _SAVE_DPI)
+    _widget_w = f"{_px_w}px"
+
+    def _fig_to_png():
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=_SAVE_DPI, bbox_inches="tight")
+        buf.seek(0)
+        return buf.read()
+
+    img_widget = widgets.Image(
+        value=_fig_to_png(),
+        format="png",
+        layout=widgets.Layout(width=_widget_w, max_width=_widget_w),
+    )
+
     # ------------------------------------------------------------------
     # No-solutions case: render tree only, no slider
     # ------------------------------------------------------------------
     if not solutions:
-        output = widgets.Output()
-        with output:
-            fig, ax = plt.subplots(figsize=figsize)
-            _plot_fn(ax)
-            plt.show()
-            plt.close(fig)
-        display(output)
+        plt.close(fig)
+        display(img_widget)
         return None
 
     # ------------------------------------------------------------------
-    # Normal case: slider + per-solution ellipses
+    # Normal case: slider drives in-place ellipse updates
     # ------------------------------------------------------------------
-    output = widgets.Output()
-    info   = widgets.HTML()
+    n_solutions    = len(solutions)
+    _qualities     = list(qualities) if qualities is not None else [None] * n_solutions
+    active_artists = []   # currently drawn ellipses/labels
+
+    def _make_title(idx):
+        selected = solutions[idx]
+        q        = _qualities[idx]
+        q_str    = f"   ·   quality {q:.3f}" if q is not None else ""
+        return (
+            f"Solution {idx + 1} / {n_solutions}"
+            f"   ·   {len(selected)} cluster{'s' if len(selected) != 1 else ''}"
+            f"{q_str}"
+        )
+
+    title_obj = ax.set_title(_make_title(0), fontsize=10, color="#222222", pad=6)
+
+    def _update(solution_idx):
+        for artist in active_artists:
+            artist.remove()
+        active_artists.clear()
+
+        selected    = solutions[solution_idx]
+        new_artists = _select_fn(
+            selected, plot_data, ax,
+            label_clusters=label_clusters,
+            selection_palette=selection_palette,
+        )
+        if new_artists:
+            active_artists.extend(new_artists)
+
+        title_obj.set_text(_make_title(solution_idx))
+        img_widget.value = _fig_to_png()
 
     slider = widgets.IntSlider(
         value=0,
         min=0,
-        max=len(solutions) - 1,
+        max=n_solutions - 1,
         step=1,
-        description='Solution',
+        description=f"Solution  (1\u2013{n_solutions})",
         continuous_update=False,
-        style={'description_width': 'initial'},
-        layout=widgets.Layout(width='500px'),
+        style={"description_width": "initial"},
+        layout=widgets.Layout(width=_widget_w),
     )
 
-    def redraw(solution_idx):
-        with output:
-            clear_output(wait=True)
-            fig, ax = plt.subplots(figsize=figsize)
-            _plot_fn(ax)
-            selected = solutions[solution_idx]
-            _select_fn(
-                selected, plot_data, ax,
-                label_clusters=label_clusters,
-                selection_palette=selection_palette,
-            )
-            info.value = (
-                f"<b>Solution:</b> {solution_idx} &nbsp;&nbsp; "
-                f"<b>Clusters:</b> {len(selected)}"
-            )
-            plt.show()
-            plt.close(fig)
+    slider.observe(lambda change: _update(change["new"]), names="value")
 
-    slider.observe(lambda change: redraw(change['new']), names='value')
+    plt.close(fig)
+    _update(0)
 
-    display(widgets.VBox([slider, info, output]))
-    redraw(0)
-
-    return slider
+    composite = widgets.VBox(
+        [img_widget, slider],
+        layout=widgets.Layout(
+            height='auto', width='auto',
+            flex="0 0 auto",
+            margin='0px',
+            padding='0px',
+            align_items='stretch'
+        ),
+    )
+    display(composite)
+    return composite
