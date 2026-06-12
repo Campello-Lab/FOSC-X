@@ -18,7 +18,6 @@ from .hierarchy.tree_numba import _postorder
 from .hierarchy.constraint_score import generate_pairwise_constraints_
 from .plotting.plot_functions import _plot_fosc
 from .plotting.plot_tree_functions import interactive_condensed
-from .plotting.cluster_tree_proxy import ClusterTreeProxy
 
 
 with resources.open_text("foscx", "hierarchy.schema.json") as f:
@@ -30,8 +29,8 @@ FOSC_SCHEMA_VALIDATOR = Draft7Validator(FOSC_JSON_SCHEMA)
 class FOSCX(BaseEstimator):
     def __init__(
         self,
-        top_M: int = 1,
-        kmin: int = None,
+        top_M: int = 5,
+        kmin: int = 2,
         kmax: int = None,
         *,
         min_cluster_size: int = None,
@@ -799,42 +798,154 @@ class FOSCX(BaseEstimator):
         """Backward-compatible alias for :meth:`get_labels`."""
         return self.get_labels(candidate_index=candidate_index, nodes=nodes)
 
-    def plot_tree(self, **kwargs):
+    def plot_tree(
+        self,
+        figsize=(5, 4),
+        label_clusters=False,
+        selection_palette=None,
+        cmap="viridis",
+        colorbar=True,
+        vary_line_width=True,
+        leaf_separation=1,
+        log_size=False,
+        max_rectangle_per_icicle=20,
+        value_field=None,
+        density=None,
+        **kwargs,
+    ):
         """
-        Plot the hierarchy tree and optionally interactively scroll
-        through candidate solutions.
-        """
+        Plot the condensed hierarchy tree with an interactive slider for
+        browsing candidate solutions.
 
-        # ensure fitted
+        The tree type (icicle or dendrogram) is selected automatically based
+        on the clustering source and ``min_cluster_size``.  Candidate
+        solutions and quality scores are extracted from the fitted instance
+        automatically.
+
+        Parameters
+        ----------
+        figsize : tuple of int, optional
+            Size of the matplotlib figure.
+
+            Default is ``(10, 8)``.
+
+        label_clusters : bool, optional
+            Whether to annotate highlighted clusters with their index number.
+
+            Default is ``False``.
+
+        selection_palette : list of colours, optional
+            Colours used for the ellipses drawn around selected clusters.
+            Cycles if fewer colours than clusters are provided.  Uses red by
+            default when ``None``.
+
+        cmap : str or matplotlib.colors.Colormap, optional
+            Colormap used to colour the tree branches or bars by cluster
+            size.  Pass ``'none'`` for solid black.
+
+            Default is ``'viridis'``.
+
+        colorbar : bool, optional
+            Whether to display a colorbar showing the cluster-size scale.
+
+            Default is ``True``.
+
+        vary_line_width : bool, optional
+            Scale branch thickness by cluster size in the dendrogram.
+            Only applies when a binary tree is used (i.e. when the source
+            is ``"SKLEARN"`` or ``"SCIPY"`` with ``min_cluster_size < 2``).
+            Has no effect on the icicle plot.
+
+            Default is ``True``.
+
+        leaf_separation : float, optional
+            Horizontal spacing between leaf clusters in the icicle plot.
+            Only applies to non-binary trees.
+
+            Default is 1.
+
+        log_size : bool, optional
+            Whether to use a log scale for cluster size in the icicle plot.
+            Only applies to non-binary trees.
+
+            Default is ``False``.
+
+        max_rectangle_per_icicle : int, optional
+            Maximum number of bars emitted per cluster branch in the icicle
+            plot.  Only applies to non-binary trees.
+
+            Default is 20.
+
+        value_field : str or None, optional
+            Name of the column holding split values in the condensed tree
+            (``'distance'`` or ``'lambda_val'``).  Auto-detected when
+            ``None``.
+
+            Default is ``None``.
+
+        density : bool or None, optional
+            Whether the tree was built from a density-based clusterer.
+            Controls the root y-coordinate and axis direction of the icicle
+            plot.  Inferred from the fitted instance when ``None``.
+
+            Default is ``None``.
+
+        **kwargs
+            Additional keyword arguments forwarded to the underlying plot
+            functions.
+
+        Returns
+        -------
+        composite : ipywidgets.VBox or None
+            The interactive widget (figure + slider).  ``None`` when no
+            candidate solutions are available.
+
+        Raises
+        ------
+        ValueError
+            If the instance has not been fitted before calling this method.
+        """
         if not hasattr(self, "cluster_tree_"):
             raise ValueError("FOSC instance must be fitted before calling plot_tree().")
 
-        proxy = ClusterTreeProxy(self.cluster_tree_,density=self.density)
-
-        if self.source in {"SKLEARN", "SCIPY"} and (self.min_cluster_size is None or self.min_cluster_size < 2):
+        if self.source in {"SKLEARN", "SCIPY"} and (
+            self.min_cluster_size is None or self.min_cluster_size < 2
+        ):
             binary_tree = True
         else:
             binary_tree = False
 
-        fig = interactive_condensed(
-            proxy,
-            solutions=self.candidate_nodes_,
+        interactive_tree =  interactive_condensed(
+            self,
             binary_tree=binary_tree,
-            density = self.density,
-            **kwargs)
-        
+            figsize=figsize,
+            label_clusters=label_clusters,
+            selection_palette=selection_palette,
+            density=density if density is not None else self.density,
+            cmap=cmap,
+            colorbar=colorbar,
+            vary_line_width=vary_line_width,
+            leaf_separation=leaf_separation,
+            log_size=log_size,
+            max_rectangle_per_icicle=max_rectangle_per_icicle,
+            value_field=value_field,
+            **kwargs,
+        )
+        return None
 
-        return 
 
     def plot(
         self,
         X=None,
         projection="pca",
-        umap_n_neighbors=15,
+        umap_n_neighbors=12,
         umap_min_dist=0.1,
+        umap_n_epochs=150,
+        tsne_perplexity=30.0,
+        tsne_n_iter=500,
         random_state=None,
-        figsize=(8, 6),
-        point_size=10,
+        figsize=(5, 4),
+        point_size=2,
         alpha=0.9,
         cmap="tab10",
         show=True,
@@ -843,72 +954,103 @@ class FOSCX(BaseEstimator):
         """
         Plot candidate FOSC solutions in 2D with an interactive slider.
 
-        This method visualises candidate clusterings and allows interactive
-        selection between them. If the data is not already 2-dimensional, a
-        projection is applied before plotting.
+        The projection is computed once and reused across all candidate
+        solutions; only point colours are updated on each slider move.
 
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features), optional
-            Original data used for clustering. If not provided, the data passed
-            during :meth:`fit` is used.
+            Original data used for clustering.  If not provided, the data
+            passed during :meth:`fit` is used.
 
-        projection : {"umap", "pca", "none"}, optional
-            Dimensionality reduction method used when the data has more than two
-            dimensions.
+        projection : {"pca", "umap", "tsne", "none"}, optional
+            Dimensionality reduction method applied when the data has more
+            than two dimensions.
 
-            - ``"pca"``: linear projection (default)  
-            - ``"umap"``: non-linear projection  
-            - ``"none"``: no projection (requires 2D data)  
+            - ``"pca"``  : linear projection (default, fastest)
+            - ``"umap"`` : non-linear, preserves local structure
+            - ``"tsne"`` : non-linear, good cluster separation
+            - ``"none"`` : no projection (data must already be 2D)
 
             Default is ``"pca"``.
 
         umap_n_neighbors : int, optional
-            Number of neighbors used for UMAP projection. Ignored unless
-            ``projection="umap"``.
+            Number of neighbours used by UMAP.  Smaller values are faster
+            and emphasise local structure; larger values give a more global
+            view.  Ignored unless ``projection="umap"``.
 
-            Default is 15.
+            Default is 12.
 
         umap_min_dist : float, optional
-            Minimum distance parameter for UMAP projection. Controls how tightly
-            points are packed in the embedding.
+            Minimum distance between points in the UMAP embedding.  Lower
+            values produce tighter clusters.  Ignored unless
+            ``projection="umap"``.
 
             Default is 0.1.
 
-        random_state : int or None, optional
-            Random state used for reproducibility of projections.
+        umap_n_epochs : int, optional
+            Number of optimisation iterations for UMAP.  Lower values are
+            faster with minimal visual difference for visualisation purposes.
+            Ignored unless ``projection="umap"``.
 
-            Default is None.
+            Default is 150.
+
+        tsne_perplexity : float, optional
+            Perplexity parameter for t-SNE.  Roughly controls the balance
+            between local and global structure.  Typical range 5–50.
+            Ignored unless ``projection="tsne"``.
+
+            Default is 30.0.
+
+        tsne_n_iter : int, optional
+            Number of optimisation iterations for t-SNE (sklearn fallback
+            only).  Ignored unless ``projection="tsne"`` and openTSNE is
+            not installed.
+
+            Default is 500.
+
+        random_state : int or None, optional
+            Random seed for reproducibility of the projection.
+
+            Default is ``None``.
 
         figsize : tuple of int, optional
             Size of the matplotlib figure.
 
-            Default is ``(8, 6)``.
+            Default is ``(7, 6.3)``.
 
-        point_size : int, optional
-            Size of the plotted data points.
+        point_size : float, optional
+            Marker size of the scatter plot points (points²).
 
             Default is 10.
 
         alpha : float, optional
-            Transparency of the data points.
+            Transparency of the scatter plot points.  Must be in [0, 1].
 
             Default is 0.9.
 
-        cmap : str or matplotlib.colors.Colormap, optional
-            Colormap used to assign colors to clusters.
+        cmap : str, optional
+            Accepted for API compatibility; cluster colours are assigned
+            automatically via golden-ratio HSV spacing and this argument is
+            not used.
+
+        show : bool, optional
+            Accepted for API compatibility; the widget is always displayed
+            automatically and this argument is not used.
+
+        return_handles : bool, optional
+            Accepted for API compatibility; the method always returns
+            ``None`` and this argument is not used.
 
         Returns
         -------
-        matplotlib.figure.Figure
-            The generated matplotlib figure.
+        None
 
         Raises
         ------
-        RuntimeError
-            If the model has not been fitted or no candidate clusterings are available.
+        ValueError
+            If the instance has not been fitted, or no data is available.
         """
-
         if not hasattr(self, "candidate_nodes_"):
             raise ValueError("FOSC instance must be fitted before calling plot().")
 
@@ -917,12 +1059,15 @@ class FOSCX(BaseEstimator):
             if X is None:
                 raise ValueError("No data available. Provide X or fit() with data.")
 
-        slider = _plot_fosc(
+        interactive_plot = _plot_fosc(
             fosc=self,
             X=X,
             projection=projection,
             umap_n_neighbors=umap_n_neighbors,
             umap_min_dist=umap_min_dist,
+            umap_n_epochs=umap_n_epochs,
+            tsne_perplexity=tsne_perplexity,
+            tsne_n_iter=tsne_n_iter,
             random_state=random_state,
             figsize=figsize,
             point_size=point_size,
