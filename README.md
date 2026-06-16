@@ -12,6 +12,14 @@ tools for pre-processing, evaluation, and visualisation.
 
 ---
 
+## Documentation
+
+Full documentation is available here:
+
+[FOSC-X* Documentation](https://foscx.readthedocs.io/en/latest/)
+
+---
+
 ## Features
 
 - Extract multiple high-quality clusterings from a single hierarchy  
@@ -81,14 +89,6 @@ model.plot_tree()   # Visualise hierarchy
 
 ---
 
-## Documentation
-
-Full documentation is available at:
-
-https://your-docs-link-here
-
----
-
 ## Performance Notes
 
 - First run includes a Numba compilation step (~10–20 seconds)  
@@ -123,6 +123,24 @@ pytest
 
 ---
 
+## Related paper
+
+The associated paper is available on arXiv:
+
+[https://arxiv.org/](https://arxiv.org/)
+
+To reproduce the results, scripts may be found in the ``experiments`` folder.
+
+---
+
 ## License
 
 BSD 3-Clause License. See LICENSE.
+
+---
+
+## Contact
+
+For questions or support, please open an issue or contact:
+
+`simpson@imada.sdu.dk`
