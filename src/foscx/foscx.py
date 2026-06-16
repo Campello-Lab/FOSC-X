@@ -108,7 +108,7 @@ class FOSCX(BaseEstimator):
             Quality measure used to evaluate clusters.
 
             Available options are ``"stability"``, ``"modularity"``,
-            ``"PFCE"``, ``"B3"``, and ``"constraints"``.
+            ``"PFCE"``, ``"BCubed"``, and ``"constraints"``.
 
             Default is ``"stability"``.
 
@@ -119,7 +119,7 @@ class FOSCX(BaseEstimator):
 
             ``PFCE`` requires an HDBSCAN object from the ``hdbscan`` package.
 
-            ``B3`` requires semi-supervised labels where unlabeled
+            ``BCubed`` requires semi-supervised labels where unlabeled
             observations have value ``-1``.
 
             ``constraints`` requires either labels or explicit
@@ -591,7 +591,7 @@ class FOSCX(BaseEstimator):
 
         if self.source != "JSON":
 
-            if self.quality_measure.casefold() in {"b3","constraints"}:
+            if self.quality_measure.casefold() in {"bcubed","constraints"}:
                 self._log(f"Computing tie-breaking quality ({self.tie_quality}) ...")
                 self.compute_quality(quality_measure = self.tie_quality)
                 self._log(f"Computing primary quality ({self.quality_measure}) ...")
@@ -1083,7 +1083,7 @@ class FOSCX(BaseEstimator):
         Internal method to determine and compute the requested quality measure.
         """
 
-        if quality_measure.casefold() in {"stability", "EOM"}:
+        if quality_measure.casefold() in {"stability", "eom"}:
             self.keep_noise_quality = False
             self.cluster_tree_.compute_stability(density=self.density)
 
@@ -1145,7 +1145,7 @@ class FOSCX(BaseEstimator):
                     self.mst, min_cluster_size=min_cluster_size
                 )
 
-        elif quality_measure.casefold() in {"b3"}:
+        elif quality_measure.casefold() in {"bcubed"}:
             if self.GT_labels_ is None:
                 raise ValueError(
                     "Semi-supervised measures such as B3 require partial labels; "

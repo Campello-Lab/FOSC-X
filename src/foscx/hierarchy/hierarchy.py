@@ -493,8 +493,9 @@ class Cluster_Tree:
         """
         #if not hasattr(self, "leaf_order") or not hasattr(self, "node_start") or not hasattr(self, "node_end"):
         #    self.compute_leaf_order_and_spans()
-        s = self.node_start[node_id]
-        e = self.node_end[node_id]
+        cnode = self._to_compact(node_id)
+        s = self.node_start[cnode]
+        e = self.node_end[cnode]
         
         if e <= s:
             # return empty 1D array of int
