@@ -1,3 +1,5 @@
+.. _performance:
+
 Performance
 ===========
 
@@ -22,7 +24,7 @@ In practice:
 The figure below illustrates empirical scaling behaviour across different
 settings.
 
-.. image:: _static/performance_scaling.png
+.. image:: _static/complexity_foscx.png
 
 
 Quality Measures
@@ -48,20 +50,54 @@ for larger datasets.
 Numba Compilation
 -----------------
 
-FOSC-X uses `Numba <https://numba.pydata.org/>`_ to accelerate core computations.
+FOSC-X can optionally use `Numba <https://numba.pydata.org/>`_ to accelerate
+core computations. If Numba is installed, FOSC-X will use it by default.
 
-On first execution, functions are compiled, which introduces a noticeable
-one-time overhead (typically around 10–20 seconds).
+On first execution, Numba-accelerated functions may be compiled, which can
+introduce a noticeable one-time overhead. The exact cost depends on the
+environment and workload, but typically takes a few seconds to complete.
 
-Once compiled, the generated code is reused, and subsequent runs are
-significantly faster. In most cases, the actual runtime on datasets is
-on the order of fractions of a second.
+Once compiled, the generated code is cached and reused, making subsequent
+runs significantly faster. In most cases, the actual computation time on
+datasets is on the order of fractions of a second.
 
 .. note::
 
-   The compilation cost is typically incurred only once per installation
-   (or when the environment changes). If the package remains installed,
-   subsequent usage will not require recompilation.
+   Compilation overhead is typically incurred only once per installation
+   or environment. If the package remains installed and the environment
+   does not change, recompilation is generally not required.
+
+
+Numba can be disabled after importing :mod:`foscx`, but **before**
+:class:`foscx.FOSCX` is loaded.
+
+For example:
+
+.. code-block:: python
+
+   import foscx
+
+   foscx.set_numba_enabled(False)
+
+   model = foscx.FOSCX(...)
+
+.. note::
+
+   The Numba setting must be configured before ``FOSCX`` is imported or
+   instantiated. For example, the following will load ``FOSCX`` immediately
+   and therefore bypass the configuration step:
+
+.. code-block:: python
+
+   from foscx import FOSCX
+
+If Numba is not installed, FOSC-X automatically falls back to a pure Python
+implementation and no additional configuration is required.
+
+.. note::
+
+   The Numba setting only affects FOSC-X and does not modify Numba behavior
+   for other installed packages.
 
 
 Effect of Condensation

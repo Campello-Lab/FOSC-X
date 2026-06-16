@@ -43,7 +43,7 @@ the minimum spanning tree (MST), enabling all quality measures
 
 
 scikit-learn HDBSCAN
----------------------
+~~~~~~~~~~~~~~~~~~~~
 
 FOSC-X also supports the HDBSCAN implementation available in
 `scikit-learn <https://scikit-learn.org/stable/modules/generated/sklearn.cluster.HDBSCAN.html>`_
@@ -54,8 +54,9 @@ so the ``PFCE`` quality measure cannot be computed. All other functionality
 remains unchanged.
 
 
+
 scikit-learn AgglomerativeClustering
--------------------------------------
+------------------------------------
 
 FOSC-X accepts ``sklearn.cluster.AgglomerativeClustering`` objects from
 `scikit-learn <https://scikit-learn.org/stable/modules/generated/sklearn.cluster.AgglomerativeClustering.html>`_.
@@ -106,8 +107,8 @@ or constructed manually. It must satisfy:
 
 Interpretation of the ``distance`` column depends on the type of hierarchy:
 
-- **Distance-based trees**: value represents the merge distance  
-- **Density-based trees**: value represents the level at which clusters split  
+- **Distance-based trees**: value represents the merge distance (A property of the parent)
+- **Density-based trees**: value represents the level at which clusters split from their parent cluster (A property of the children)
 
 This behaviour is controlled via the ``density`` parameter.
 
@@ -137,7 +138,21 @@ These are expected in the form:
 
 The interpretation of ``distance`` is the same as for linkage matrices and
 depends on whether the tree is distance-based or density-based. This is
-controlled via the ``density`` parameter.
+again controlled via the ``density`` parameter.
+
+.. code-block:: python
+
+    import hdbscan
+
+    # Build hierarchical clustering
+    clusterer = hdbscan.HDBSCAN().fit(X)
+    Z = clusterer.condensed_tree_.to_pandas()
+
+    # Initialize FOSC-X
+    model = FOSCX(top_M=5, kmin=2, kmax=None, density=True)
+
+    # Extract clusterings
+    model.fit(Z)
 
 .. _json_tree:
 
@@ -161,6 +176,7 @@ The JSON file must define a flattened tree structure with the following fields:
     root_id: str (required)
     complete_tree: bool (required)
     condensed_simplified_tree: bool (required)
+    density_based: bool (required)
     data: array | object | null (optional)
 
     tree: {
@@ -258,7 +274,7 @@ Behaviour and Limitations
 
 When using pre-computed JSON trees, some built-in functionality is bypassed:
 
-- Built-in quality measures (``Stability``, ``Modularity``, ``PFCE``) are ignored  
+- Built-in quality measures (e.g. ``Stability``, ``Modularity``, ``PFCE``) are ignored  
 - Tree condensation (``min_cluster_size``) is not available  
 - The provided ``quality`` values are used directly  
 
