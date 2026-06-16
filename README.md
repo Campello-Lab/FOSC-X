@@ -16,7 +16,7 @@ tools for pre-processing, evaluation, and visualisation.
 
 Full documentation is available here:
 
-[FOSC-X* Documentation](https://foscx.readthedocs.io/en/latest/)
+[FOSC-X Documentation](https://foscx.readthedocs.io/en/latest/)
 
 ---
 
