@@ -1,8 +1,11 @@
+.. _preprocessing:
+
 Tree Processing and Noise
 =========================
 
-This section describes how preprocessing the cluster tree affects the behaviour
-of FOSC-X.
+FOSC-X supports several preprocessing operations that modify the cluster tree before extraction, 
+including tree condensation, simplification, and noise handling. 
+This section describes these options and their impact on the extraction process.
 
 Tree Condensation / Simplification
 ----------------------------------
@@ -87,7 +90,7 @@ Noise may be introduced into a hierarchy in several ways:
   modifying the tree structure  
 - **Pre-specified hierarchy**: noise labels provided directly in a JSON tree  
 - **Post-fit assignment**: noise defined manually via
-  ``model.cluster_tree_.is_noise``  
+  ``model.cluster_tree_.is_noise``  (see :ref:`advanced_noise`)
 
 The presence of noise affects both the feasible solution space and how cluster
 quality is evaluated.
@@ -119,5 +122,7 @@ The effect of this depends on the chosen quality measure:
 - **Stability**: noise always has zero quality  
 - **PFCE**: noise always has zero quality  
 - **Modularity**: noise may receive small (often negative) values  
+- **BCubed**: noise is assigned the quality value that would be obtained by treating each noise observation as a singleton cluster
+- **Constraint Satisfaction**: noise is assigned quality values according to the contribution of noise assignments to the constraint-satisfaction objective (e.g., cannot-link constraints)
 - **Precomputed (JSON)**: noise may be assigned arbitrary quality values  
 

@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 import subprocess
+import foscx
+from foscx.foscx import FOSCX
 
 sys.path.insert(0, os.path.abspath("../src"))
 
@@ -15,12 +17,15 @@ author = 'Connor Simpson'
 release = '0.1.0'
 
 # -- General configuration ---------------------------------------------------
+primary_domain = 'py'
+default_role = 'py:obj'
 
 extensions = [
     'myst_parser',              # ✅ Markdown support
     'sphinx.ext.autodoc',
     'sphinx.ext.napoleon',
     'sphinx.ext.viewcode',
+    'sphinx.ext.intersphinx',
 ]
 napoleon_google_docstring = False
 napoleon_numpy_docstring = True
@@ -51,6 +56,10 @@ autodoc_default_options = {
     'undoc-members': True,
     'inherited-members': False,
 }
+
+autodoc_typehints = "description"
+
+autodoc_mock_imports = []
 
 # Skip sklearn internals
 def skip_member(app, what, name, obj, skip, options):

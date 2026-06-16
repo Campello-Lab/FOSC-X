@@ -23,12 +23,11 @@ multiple candidate clusterings derived from a single hierarchy.
    :caption: Usage
 
    basic_usage
-   visualiszation
+   visualisation
    Tree_formats
    parameters
    quality
    input_processing
-   algorithm
    advanced
    performance
 

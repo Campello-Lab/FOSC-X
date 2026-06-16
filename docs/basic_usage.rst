@@ -1,34 +1,47 @@
 Basic Usage
 ===========
 
-FOSC-X (Framework for Optimal Extraction of Clusters) is designed to extract
-high-quality flat clusterings from a hierarchical clustering tree.
+FOSC-X is designed to extract multiple high-quality flat clusterings from hierarchical
+clustering trees.
 
-Rather than producing a single clustering, FOSC-X explores multiple possible
-solutions under optional cluster-count constraints. It returns the ``top_M``
-globally optimal solutions within these constraints, ranked from best to worst.
+Rather than producing a single clustering, FOSC-X explores a range of candidate
+solutions and returns the ``top_M`` best ones, ranked from best to worst.
+Optional constraints on the number of clusters (``kmin`` and ``kmax``) allow you
+to restrict the search to solutions of interest, focusing on a meaningful range
+of cluster counts.
+
+FOSC-X performs **local, non-horizontal cuts** of the hierarchy. This
+allows different branches of the tree to be cut at different levels, producing
+clusterings that better reflect the underlying structure of the data.
+
+The result is a set of high-quality, diverse clusterings that provide multiple
+plausible interpretations of the data, rather than a single fixed solution.
+
+FOSC-X follows a familiar scikit-learn style API, so if you have used sklearn
+estimators before, the workflow should feel natural.
+
+Supported Input Formats
+-----------------------
 
 FOSC-X is designed to work with a range of common hierarchical clustering outputs,
 including:
 
-- HDBSCAN 
-- scikit-learn (AgglomerativeClustering)
-- SciPy linkage matrices
-- Condensed Tree/Non-Binary tree matrices
-- Pre-Computed Trees (JSON) (See :ref:`JSON Tree format <json_tree>`)
+- HDBSCAN*  
+- scikit-learn (``AgglomerativeClustering`` and ``HDBSCAN*``)  
+- SciPy linkage matrices  
+- Condensed / non-binary tree matrices  
+- Pre-computed trees (JSON format) (see :ref:`json_tree`)  
 
-Using these formats is intentionally simple, just pass in the object or model you already have.
-For more details, see :ref:`tree_formats`.
+Using these formats is intentionally simple—just pass in the object or model you
+already have. For more details, see :ref:`tree_formats`.
 
-FOSC-X follows a familiar scikit-learn style API, so if you have used sklearn
-estimators before, the workflow should feel natural.
 
 Example
 -------
 
 Below is a minimal example using a SciPy-style hierarchical clustering.
 
-We begin by generating some sample data and constructing a hierarchical tree:
+We begin by generating some sample data and constructing a hierarchy:
 
 .. code-block:: python
 
@@ -36,29 +49,51 @@ We begin by generating some sample data and constructing a hierarchical tree:
     from scipy.cluster.hierarchy import linkage
     from sklearn.datasets import make_blobs
 
-    from foscx import FOSCX
-
     # Generate sample data
     X, _ = make_blobs(n_samples=300, centers=4, random_state=42)
 
-    # Build hierarchical clustering (SciPy linkage)
+    # Build hierarchical clustering
     Z = linkage(X, method="ward")
 
-Once we have a hierarchy, we can use FOSC-X to explore possible flat clusterings:
+Once we have a hierarchy, we can use FOSC-X to extract candidate clusterings:
 
 .. code-block:: python
 
-    # Initialize FOSC-X
-    model = FOSCX(top_M=5, kmin=2, kmax=None)
+    from foscx import FOSCX
 
-    # Fit model to hierarchy
+    model = FOSCX(top_M=5, kmin=2, kmax=None, min_cluster_size=None, quality_measure='stability',
+    singletons_as_noise=False, keep_noise_quality=None, nearest_neighbors=None, metric=None, 
+    density=False, tie_quality='stability', verbose=False)
+
     model.fit(Z)
+
+
+Core Parameters
+---------------
+
+FOSC-X is primarily controlled by three parameters:
+
+- ``top_M``  
+  Number of candidate clusterings to return  
+
+- ``kmin``  
+  Minimum number of clusters allowed  
+
+- ``kmax``  
+  Maximum number of clusters allowed  
+
+- ``quality_measure``  
+  Objective function used to evaluate clusterings (see :ref:`quality_measures`)
+
+Setting ``kmin=None`` and ``kmax=None`` performs an unconstrained search.
+
+For more details, see :ref:`parameters`.
+
 
 Candidate Clusterings
 ---------------------
 
-FOSC-X does not return a single clustering, but instead a set of candidate
-solutions ranked by quality:
+FOSC-X returns a set of candidate solutions ranked by quality:
 
 .. code-block:: python
 
@@ -75,108 +110,46 @@ A typical output might look like:
     22286.93    7             [301, 305, 354, 355, 356, 357, 314]
     22256.62    7             [301, 305, 313, 358, 359, 360, 361]
 
-Each row corresponds to a different clustering solution:
+Each row corresponds to a different clustering:
 
-- ``quality``: Objective value of the clustering  
-- ``n_clusters``: Number of clusters  
-- ``selected_nodes``: Internal representation of clusters  
+- ``quality``: objective value of the clustering  
+- ``n_clusters``: number of clusters  
+- ``selected_nodes``: nodes selected in the hierarchy  
 
-This allows you to investigate multiple plausible clusterings rather than only 
-obtaining a single result.
 
+The FOSC-X API also provides several methods for visualising and interpreting these candidate solutions, as described in :ref:`visualization`.
 
 Extracting Labels
 -----------------
 
-To convert one of these candidate solutions into a flat partition:
+To convert a candidate solution into a flat clustering:
 
 .. code-block:: python
 
     labels = model.get_labels(candidate_index=0)
 
-.. code-block:: text
-
-    array([3, 3, 3, ..., 3, 3, 3])
-
-Here, ``candidate_index`` selects which solution to use (from ``0`` to ``top_M - 1``).
-
-The result is a NumPy array of cluster labels for each data point, which can be
-used directly for analysis or visualization. Noise points are labeled as ``0``.
-
-Cluster Count Constraints
--------------------------
-
-FOSC-X can optionally restrict the range of clusterings considered using
-``kmin`` and ``kmax``, which define the minimum and maximum number of clusters.
-
-For example, setting ``kmin=2`` ensures that all returned solutions contain
-at least two clusters. Leaving ``kmax=None`` allows any larger number of clusters.
-
-These constraints are useful when you have prior knowledge about the expected
-number of clusters, or want to limit the search space.
+The result is a NumPy array of cluster labels for each data point. Noise observations
+are assigned the label ``-1``.
 
 
 Refining Clusterings
 --------------------
 
-Once the model has been fitted, alternative clusterings can be explored
-without reprocessing the hierarchy by calling the ``predict`` method.
-
-This allows you to adjust parameters such as ``top_M``, ``kmin``, and ``kmax``
-and quickly obtain new candidate solutions:
+Once a hierarchy has been processed, alternative solutions can be explored
+without recomputing everything by calling :meth:`FOSCX.predict`:
 
 .. code-block:: python
 
     model.predict(top_M=5, kmin=5, kmax=10)
 
+This allows rapid exploration of different constraints and solution sets.
 
 
-Quality Measures
-----------------
+Pre-processing and Noise
+------------------------
 
-FOSC-X supports multiple quality measures for evaluating clusterings, including
-``Stability``, ``Modularity``, and ``PFCE``. Stability is the default quality measure.
+FOSC-X includes several pre-processing steps that can affect the quality evaluation and solution space, including:
+- **Condensation**: removes small clusters and treats their leaves as noise
+- **Noise assignment**: allows manual specification of noise observations
 
-The quality measure can be selected when initializing the model:
-
-.. code-block:: python
-
-    model = FOSCX(quality_measure="Stability")
-
-Different measures may lead to different preferred clusterings depending on
-the structure of the data. See the Quality Measures section for a more detailed
-comparison.
-
-Modularity Q
-~~~~~~~~~~
-
-The Modularity Q measure evaluates clusterings based on a similarity graph
-constructed from the original data. As such, it requires access to the raw data,
-unless this is already available from the input clustering (for example, with
-HDBSCAN objects).
-
-In addition, the number of nearest neighbors and a distance metric must be
-specified. The metric should typically match the one used to generate the
-hierarchical clustering.
-
-.. code-block:: python
-
-    model = FOSCX(
-        quality_measure="modularity",
-        nearest_neighbors=5,
-        metric="euclidean"
-    )
-    model.fit(Z, y=X)
-
-Alternatively, a precomputed similarity graph may be used by setting
-``metric="precomputed"``, and supplied instead of the data X.
-
-For HDBSCAN objects, both the nearest neighbors and metric are inferred
-automatically from the clustering.
-
-PFCE
-~~~~
-
-The PFCE measure is only available when using HDBSCAN objects generated with
-the `hdbscan <https://hdbscan.readthedocs.io/>`_ package and requires no
-additional inputs.
+These steps can improve the robustness of Stability-based extraction and provide more control over the solution space. See :ref:`preprocessing` for details.
