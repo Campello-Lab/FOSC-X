@@ -629,7 +629,8 @@ def _filter_candidates(
 
 @njit(cache=True)
 def _efosc(children_flat, children_off, post, clusteval, is_noise,
-          cluster_key, top_c, kmin, kmax, LB_arr, UB_arr, n_leaves):
+          cluster_key, top_c, kmin, kmax, LB_arr, UB_arr, n_leaves,
+          force_no_noise):
     """
     Choice-buffered EFOSC (numba) — corrected sorting mapping.
 
@@ -865,7 +866,26 @@ def _efosc(children_flat, children_off, post, clusteval, is_noise,
         )
 
         # ---- Build local candidate list (parent + children) ----
-        tot = cur_len + 1
+
+        # force_no_noise: if enabled, check whether all children are noise leaves.
+        # If so, suppress the children combinations — only the "select self" option
+        # is kept, forcing the DP to pick this internal node as a cluster terminal.
+        # If children are mixed (some real clusters, some noise leaves), combinations
+        # are allowed normally — the real cluster children carry nc >= 1.
+        all_children_are_noise_leaves = False
+        if force_no_noise:
+            all_children_are_noise_leaves = True
+            for ii in range(m):
+                ch = children[ii]
+                ch_is_leaf = (children_off[ch + 1] - children_off[ch]) == 0
+                if not (ch_is_leaf and is_noise[ch] == 1):
+                    all_children_are_noise_leaves = False
+                    break
+
+        if force_no_noise and all_children_are_noise_leaves:
+            tot = 1  # only the "select self" candidate
+        else:
+            tot = cur_len + 1
 
         cand_scores_local = np.empty(tot, dtype=np.float64)
         cand_ncs_local = np.empty(tot, dtype=np.int64)
@@ -873,9 +893,10 @@ def _efosc(children_flat, children_off, post, clusteval, is_noise,
         cand_scores_local[0] = clusteval[node]
         cand_ncs_local[0] = 0 if is_noise[node] == 1 else 1
 
-        for ii in range(cur_len):
-            cand_scores_local[ii + 1] = cur_scores[ii]
-            cand_ncs_local[ii + 1] = cur_ncs[ii]
+        if not (force_no_noise and all_children_are_noise_leaves):
+            for ii in range(cur_len):
+                cand_scores_local[ii + 1] = cur_scores[ii]
+                cand_ncs_local[ii + 1] = cur_ncs[ii]
 
         # ---- Sort (score desc, nc desc) ----
         orig_idx = np.empty(tot, dtype=np.int64)

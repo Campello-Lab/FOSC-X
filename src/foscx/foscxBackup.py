@@ -18,6 +18,7 @@ from .hierarchy.tree_numba import _postorder
 from .hierarchy.constraint_score import generate_pairwise_constraints_
 from .plotting.plot_functions import _plot_fosc
 from .plotting.plot_tree_functions import interactive_condensed
+from .plotting.cluster_tree_proxy import ClusterTreeProxy
 
 
 with resources.open_text("foscx", "hierarchy.schema.json") as f:
@@ -29,8 +30,8 @@ FOSC_SCHEMA_VALIDATOR = Draft7Validator(FOSC_JSON_SCHEMA)
 class FOSCX(BaseEstimator):
     def __init__(
         self,
-        top_M: int = 5,
-        kmin: int = 2,
+        top_M: int = 1,
+        kmin: int = None,
         kmax: int = None,
         *,
         min_cluster_size: int = None,
@@ -38,11 +39,9 @@ class FOSCX(BaseEstimator):
         singletons_as_noise: bool = False,
         keep_noise_quality: bool = None,
         nearest_neighbors: int = None,
-        metric: str = None,
+        metric: str =  None,
         density: bool = False,
         tie_quality: str = "stability",
-        avoid_noise_clusters: bool = True,
-        verbose: bool = False,
     ):
 
         """
@@ -109,7 +108,7 @@ class FOSCX(BaseEstimator):
             Quality measure used to evaluate clusters.
 
             Available options are ``"stability"``, ``"modularity"``,
-            ``"PFCE"``, ``"BCubed"``, and ``"constraints"``.
+            ``"PFCE"``, ``"B3"``, and ``"constraints"``.
 
             Default is ``"stability"``.
 
@@ -120,7 +119,7 @@ class FOSCX(BaseEstimator):
 
             ``PFCE`` requires an HDBSCAN object from the ``hdbscan`` package.
 
-            ``BCubed`` requires semi-supervised labels where unlabeled
+            ``B3`` requires semi-supervised labels where unlabeled
             observations have value ``-1``.
 
             ``constraints`` requires either labels or explicit
@@ -185,23 +184,6 @@ class FOSCX(BaseEstimator):
 
             Ignored for JSON trees with precomputed quality.
 
-        avoid_noise_clusters : bool, optional
-            If True, stops the algorithm from selecting a group of noise leaf
-            nodes instead of their non-noise parent cluster. This can give
-            more varied results for top-M selection, but may be too
-            restrictive for constrained cases, where allowing noise leaves
-            can sometimes produce better results.
-
-            Has no effect on top-1 unconstrained selection.
-
-            Default is True.
-
-        verbose : bool, optional
-            If True, print progress messages during fitting (e.g. building the tree,
-            computing quality, running FOSC optimisation).
-
-            Default is False.
-
 
         Attributes
         ----------
@@ -230,7 +212,7 @@ class FOSCX(BaseEstimator):
         self.kmin = kmin
         self.kmax = kmax
 
-        self.min_cluster_size = min_cluster_size
+        self.min_cluster_size = min_cluster_size  # If min_samples != None, condense the tree based on value. This includes min_samples = 1?
         self.nearest_neighbors = nearest_neighbors
         self.quality_measure = quality_measure
         self.singletons_as_noise = singletons_as_noise
@@ -238,8 +220,7 @@ class FOSCX(BaseEstimator):
         self.metric = metric
         self.density = density
         self.tie_quality = tie_quality
-        self.avoid_noise_clusters = avoid_noise_clusters
-        self.verbose = verbose
+
 
         self.source = None
         self.hdbscan_ = False
@@ -287,11 +268,6 @@ class FOSCX(BaseEstimator):
             f"min_cluster_size={self.min_cluster_size}, "
             f"density={self.density})"
         )
-
-    def _log(self, msg: str) -> None:
-        """Print *msg* when ``verbose=True``."""
-        if self.verbose:
-            print(f"[FOSCX] {msg}")
 
     def fit(self, X, y=None, z=None, **params):
         """
@@ -358,14 +334,10 @@ class FOSCX(BaseEstimator):
 
         self._validate_constructor_params()
 
-
-        if self.avoid_noise_clusters and ((self.kmin is not None and self.kmin >= 2) or self.kmax is not None):
-            warnings.warn("Constrained results may improve with avoid_noise_clusters=False")
-
         self._raw_tree_ = X
 
         # HDBSCAN (hdbscan/fast_hdbscan)
-        if hasattr(X, "condensed_tree_") and hasattr(X, "single_linkage_tree_") and hasattr(X, "min_cluster_size") and hasattr(X,"single_linkage_tree_"):
+        if hasattr(X, "condensed_tree_") and hasattr(X, "min_cluster_size"):
             tree = X.single_linkage_tree_.to_numpy()
 
             if not self.min_cluster_size:
@@ -381,7 +353,7 @@ class FOSCX(BaseEstimator):
                     "Both `y` and clustering-object raw data were provided; using explicit `y` from fit().",
                     stacklevel=2,
                 )
-            elif y is None and raw_data is not None:
+            else:
                 self.data_ = raw_data
             if hasattr(X, "minimum_spanning_tree_"):
                 self.mst = X.minimum_spanning_tree_.to_numpy()
@@ -399,11 +371,6 @@ class FOSCX(BaseEstimator):
 
             self.min_samples = getattr(X, "min_samples", X.min_cluster_size)
 
-            if not self.density:
-                warnings.warn(
-                    "sklearn HDBSCAN input detected: overriding density=False to density=True.",
-                    stacklevel=2,
-                )
             self.density = True
             self.hdbscan_ = True
             if self.metric is None:
@@ -495,11 +462,6 @@ class FOSCX(BaseEstimator):
                 self.keep_noise_quality = True
 
             self.source = "JSON"
-            if self.quality_measure != "precomputed":
-                warnings.warn(
-                    f"JSON trees use precomputed quality; ignoring quality_measure={self.quality_measure!r}.",
-                    stacklevel=2,
-                )
             self.quality_measure = "precomputed"
 
         # SCIPY or Condensed
@@ -525,11 +487,6 @@ class FOSCX(BaseEstimator):
                 self.source = "SCIPY"
                 self.density = getattr(self, "density", False)
                 if self.density and (self.min_cluster_size is None or self.min_cluster_size < 2):
-                    warnings.warn(
-                        "SciPy linkage trees treated as density-based require min_cluster_size >= 2. "
-                        f"Overriding min_cluster_size from {self.min_cluster_size!r} to 2.",
-                        stacklevel=2,
-                    )
                     self.min_cluster_size = 2
 
             elif X_arr.ndim == 2 and X_arr.shape[1] == 4:
@@ -559,23 +516,17 @@ class FOSCX(BaseEstimator):
         if self.source is None:
             raise RuntimeError("Failed to infer hierarchy source from input X.")
 
-        self._log(f"Input source detected: {self.source}")
-
         if self.source not in ("JSON", "CONDENSED"):
             # If min_samples set or HDBSCAN, condense then load
             if (
                 self.min_cluster_size is not None and self.min_cluster_size > 1
             ):  # or hdbscan
-                self._log(
-                    f"Condensing tree (min_cluster_size={self.min_cluster_size}) ..."
-                )
                 tree = _condense_tree(
                     tree, min_cluster_size=self.min_cluster_size, density=self.density
                 )
                 self.set_leaf_noise = True
                 self.condensed_simplified_tree = True
             else:
-                self._log("Converting linkage to condensed format ...")
                 tree = _scipy_to_condensed(tree)
                 self.condensed_simplified_tree = False
                 if self.singletons_as_noise:
@@ -584,14 +535,12 @@ class FOSCX(BaseEstimator):
                     self.set_leaf_noise = False
 
             tree = np.asarray(tree).T
-            self._log("Building cluster tree ...")
             self.cluster_tree_ = Cluster_Tree._from_hdbscan_condensed(
                 tree, density=self.density
             )
 
         if self.source == "CONDENSED":
             #tree = np.asarray(tree).T
-            self._log("Building cluster tree from condensed input ...")
             self.cluster_tree_ = Cluster_Tree._from_hdbscan_condensed(
                 tree, density=self.density
             )
@@ -603,20 +552,17 @@ class FOSCX(BaseEstimator):
 
         if self.source != "JSON":
 
-            if self.quality_measure.casefold() in {"bcubed","constraints"}:
-                self._log(f"Computing tie-breaking quality ({self.tie_quality}) ...")
+            if self.quality_measure.casefold() in {"b3","constraints"}:
                 self.compute_quality(quality_measure = self.tie_quality)
-                self._log(f"Computing primary quality ({self.quality_measure}) ...")
                 self.compute_quality(quality_measure = self.quality_measure)
             else:
-                self._log(f"Computing quality ({self.quality_measure}) ...")
                 self.compute_quality(quality_measure = self.quality_measure)
 
         self.cluster_tree_.compute_leaf_noise_and_siblings(
             set_leaf_noise=self.set_leaf_noise,
             singleton_as_noise=self.singletons_as_noise,
         )
-        self.cluster_tree_.compute_bounds(force_no_noise=self.avoid_noise_clusters)
+        self.cluster_tree_.compute_bounds()
         self.cluster_tree_.set_noise_quality(keep_noise_quality=self.keep_noise_quality)
 
         self._postorder = _postorder(
@@ -625,14 +571,8 @@ class FOSCX(BaseEstimator):
             self.cluster_tree_.children_off,
         )
 
-        self._log(
-            f"Running FOSC (top_M={self.top_M}, kmin={self.kmin}, kmax={self.kmax}) ..."
-        )
         self.candidate_quality_, self.candidate_nodes_, self.candidate_n_clusters_ = (
             self._efosc(top_M=self.top_M, kmin=self.kmin, kmax=self.kmax)
-        )
-        self._log(
-            f"Done. Found {len(self.candidate_nodes_)} candidate clustering(s)."
         )
 
         self.candidates_ = pd.DataFrame(
@@ -674,7 +614,6 @@ class FOSCX(BaseEstimator):
             kmax = len(self.cluster_tree_.leaf_order)
         if not kmin:
             kmin = 1
-
         root = int(np.where(self.cluster_tree_.parent == -1)[0][0])
         root_scores, root_ncs, sel_nodes, sel_counts, root_k = _efosc(
             self.cluster_tree_.children_flat,
@@ -689,7 +628,6 @@ class FOSCX(BaseEstimator):
             self.cluster_tree_.LB,
             self.cluster_tree_.UB,
             len(self.cluster_tree_.leaf_order),
-            bool(self.avoid_noise_clusters),
         )
         quality_list = [float(root_scores[i]) for i in range(root_k)]
         cluster_list = [
@@ -812,154 +750,42 @@ class FOSCX(BaseEstimator):
         """Backward-compatible alias for :meth:`get_labels`."""
         return self.get_labels(candidate_index=candidate_index, nodes=nodes)
 
-    def plot_tree(
-        self,
-        figsize=(5, 4),
-        label_clusters=False,
-        selection_palette=None,
-        cmap="viridis",
-        colorbar=True,
-        vary_line_width=True,
-        leaf_separation=1,
-        log_size=False,
-        max_rectangle_per_icicle=20,
-        value_field=None,
-        density=None,
-        **kwargs,
-    ):
+    def plot_tree(self, **kwargs):
         """
-        Plot the condensed hierarchy tree with an interactive slider for
-        browsing candidate solutions.
-
-        The tree type (icicle or dendrogram) is selected automatically based
-        on the clustering source and ``min_cluster_size``.  Candidate
-        solutions and quality scores are extracted from the fitted instance
-        automatically.
-
-        Parameters
-        ----------
-        figsize : tuple of int, optional
-            Size of the matplotlib figure.
-
-            Default is ``(10, 8)``.
-
-        label_clusters : bool, optional
-            Whether to annotate highlighted clusters with their index number.
-
-            Default is ``False``.
-
-        selection_palette : list of colours, optional
-            Colours used for the ellipses drawn around selected clusters.
-            Cycles if fewer colours than clusters are provided.  Uses red by
-            default when ``None``.
-
-        cmap : str or matplotlib.colors.Colormap, optional
-            Colormap used to colour the tree branches or bars by cluster
-            size.  Pass ``'none'`` for solid black.
-
-            Default is ``'viridis'``.
-
-        colorbar : bool, optional
-            Whether to display a colorbar showing the cluster-size scale.
-
-            Default is ``True``.
-
-        vary_line_width : bool, optional
-            Scale branch thickness by cluster size in the dendrogram.
-            Only applies when a binary tree is used (i.e. when the source
-            is ``"SKLEARN"`` or ``"SCIPY"`` with ``min_cluster_size < 2``).
-            Has no effect on the icicle plot.
-
-            Default is ``True``.
-
-        leaf_separation : float, optional
-            Horizontal spacing between leaf clusters in the icicle plot.
-            Only applies to non-binary trees.
-
-            Default is 1.
-
-        log_size : bool, optional
-            Whether to use a log scale for cluster size in the icicle plot.
-            Only applies to non-binary trees.
-
-            Default is ``False``.
-
-        max_rectangle_per_icicle : int, optional
-            Maximum number of bars emitted per cluster branch in the icicle
-            plot.  Only applies to non-binary trees.
-
-            Default is 20.
-
-        value_field : str or None, optional
-            Name of the column holding split values in the condensed tree
-            (``'distance'`` or ``'lambda_val'``).  Auto-detected when
-            ``None``.
-
-            Default is ``None``.
-
-        density : bool or None, optional
-            Whether the tree was built from a density-based clusterer.
-            Controls the root y-coordinate and axis direction of the icicle
-            plot.  Inferred from the fitted instance when ``None``.
-
-            Default is ``None``.
-
-        **kwargs
-            Additional keyword arguments forwarded to the underlying plot
-            functions.
-
-        Returns
-        -------
-        composite : ipywidgets.VBox or None
-            The interactive widget (figure + slider).  ``None`` when no
-            candidate solutions are available.
-
-        Raises
-        ------
-        ValueError
-            If the instance has not been fitted before calling this method.
+        Plot the hierarchy tree and optionally interactively scroll
+        through candidate solutions.
         """
+
+        # ensure fitted
         if not hasattr(self, "cluster_tree_"):
             raise ValueError("FOSC instance must be fitted before calling plot_tree().")
 
-        if self.source in {"SKLEARN", "SCIPY"} and (
-            self.min_cluster_size is None or self.min_cluster_size < 2
-        ):
+        proxy = ClusterTreeProxy(self.cluster_tree_,density=self.density)
+
+        if self.source in {"SKLEARN", "SCIPY"} and (self.min_cluster_size is None or self.min_cluster_size < 2):
             binary_tree = True
         else:
             binary_tree = False
 
-        interactive_tree =  interactive_condensed(
-            self,
+        fig = interactive_condensed(
+            proxy,
+            solutions=self.candidate_nodes_,
             binary_tree=binary_tree,
-            figsize=figsize,
-            label_clusters=label_clusters,
-            selection_palette=selection_palette,
-            density=density if density is not None else self.density,
-            cmap=cmap,
-            colorbar=colorbar,
-            vary_line_width=vary_line_width,
-            leaf_separation=leaf_separation,
-            log_size=log_size,
-            max_rectangle_per_icicle=max_rectangle_per_icicle,
-            value_field=value_field,
-            **kwargs,
-        )
-        return None
+            density = self.density,
+            **kwargs)
+        
 
+        return 
 
     def plot(
         self,
         X=None,
         projection="pca",
-        umap_n_neighbors=12,
+        umap_n_neighbors=15,
         umap_min_dist=0.1,
-        umap_n_epochs=150,
-        tsne_perplexity=30.0,
-        tsne_n_iter=500,
         random_state=None,
-        figsize=(5, 4),
-        point_size=2,
+        figsize=(8, 6),
+        point_size=10,
         alpha=0.9,
         cmap="tab10",
         show=True,
@@ -968,103 +794,72 @@ class FOSCX(BaseEstimator):
         """
         Plot candidate FOSC solutions in 2D with an interactive slider.
 
-        The projection is computed once and reused across all candidate
-        solutions; only point colours are updated on each slider move.
+        This method visualises candidate clusterings and allows interactive
+        selection between them. If the data is not already 2-dimensional, a
+        projection is applied before plotting.
 
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features), optional
-            Original data used for clustering.  If not provided, the data
-            passed during :meth:`fit` is used.
+            Original data used for clustering. If not provided, the data passed
+            during :meth:`fit` is used.
 
-        projection : {"pca", "umap", "tsne", "none"}, optional
-            Dimensionality reduction method applied when the data has more
-            than two dimensions.
+        projection : {"umap", "pca", "none"}, optional
+            Dimensionality reduction method used when the data has more than two
+            dimensions.
 
-            - ``"pca"``  : linear projection (default, fastest)
-            - ``"umap"`` : non-linear, preserves local structure
-            - ``"tsne"`` : non-linear, good cluster separation
-            - ``"none"`` : no projection (data must already be 2D)
+            - ``"pca"``: linear projection (default)  
+            - ``"umap"``: non-linear projection  
+            - ``"none"``: no projection (requires 2D data)  
 
             Default is ``"pca"``.
 
         umap_n_neighbors : int, optional
-            Number of neighbours used by UMAP.  Smaller values are faster
-            and emphasise local structure; larger values give a more global
-            view.  Ignored unless ``projection="umap"``.
+            Number of neighbors used for UMAP projection. Ignored unless
+            ``projection="umap"``.
 
-            Default is 12.
+            Default is 15.
 
         umap_min_dist : float, optional
-            Minimum distance between points in the UMAP embedding.  Lower
-            values produce tighter clusters.  Ignored unless
-            ``projection="umap"``.
+            Minimum distance parameter for UMAP projection. Controls how tightly
+            points are packed in the embedding.
 
             Default is 0.1.
 
-        umap_n_epochs : int, optional
-            Number of optimisation iterations for UMAP.  Lower values are
-            faster with minimal visual difference for visualisation purposes.
-            Ignored unless ``projection="umap"``.
-
-            Default is 150.
-
-        tsne_perplexity : float, optional
-            Perplexity parameter for t-SNE.  Roughly controls the balance
-            between local and global structure.  Typical range 5–50.
-            Ignored unless ``projection="tsne"``.
-
-            Default is 30.0.
-
-        tsne_n_iter : int, optional
-            Number of optimisation iterations for t-SNE (sklearn fallback
-            only).  Ignored unless ``projection="tsne"`` and openTSNE is
-            not installed.
-
-            Default is 500.
-
         random_state : int or None, optional
-            Random seed for reproducibility of the projection.
+            Random state used for reproducibility of projections.
 
-            Default is ``None``.
+            Default is None.
 
         figsize : tuple of int, optional
             Size of the matplotlib figure.
 
-            Default is ``(7, 6.3)``.
+            Default is ``(8, 6)``.
 
-        point_size : float, optional
-            Marker size of the scatter plot points (points²).
+        point_size : int, optional
+            Size of the plotted data points.
 
             Default is 10.
 
         alpha : float, optional
-            Transparency of the scatter plot points.  Must be in [0, 1].
+            Transparency of the data points.
 
             Default is 0.9.
 
-        cmap : str, optional
-            Accepted for API compatibility; cluster colours are assigned
-            automatically via golden-ratio HSV spacing and this argument is
-            not used.
-
-        show : bool, optional
-            Accepted for API compatibility; the widget is always displayed
-            automatically and this argument is not used.
-
-        return_handles : bool, optional
-            Accepted for API compatibility; the method always returns
-            ``None`` and this argument is not used.
+        cmap : str or matplotlib.colors.Colormap, optional
+            Colormap used to assign colors to clusters.
 
         Returns
         -------
-        None
+        matplotlib.figure.Figure
+            The generated matplotlib figure.
 
         Raises
         ------
-        ValueError
-            If the instance has not been fitted, or no data is available.
+        RuntimeError
+            If the model has not been fitted or no candidate clusterings are available.
         """
+
         if not hasattr(self, "candidate_nodes_"):
             raise ValueError("FOSC instance must be fitted before calling plot().")
 
@@ -1073,15 +868,12 @@ class FOSCX(BaseEstimator):
             if X is None:
                 raise ValueError("No data available. Provide X or fit() with data.")
 
-        interactive_plot = _plot_fosc(
+        slider = _plot_fosc(
             fosc=self,
             X=X,
             projection=projection,
             umap_n_neighbors=umap_n_neighbors,
             umap_min_dist=umap_min_dist,
-            umap_n_epochs=umap_n_epochs,
-            tsne_perplexity=tsne_perplexity,
-            tsne_n_iter=tsne_n_iter,
             random_state=random_state,
             figsize=figsize,
             point_size=point_size,
@@ -1094,14 +886,14 @@ class FOSCX(BaseEstimator):
 
     def compute_quality(self, quality_measure):
         """
-        Internal method to determine and compute the requested quality measure.
+        Internal Function to determine and compute quality measuers
         """
-
-        if quality_measure.casefold() in {"stability", "eom"}:
+            
+        if quality_measure.casefold() in {"stability", "EOM"}:
             self.keep_noise_quality = False
             self.cluster_tree_.compute_stability(density=self.density)
 
-        elif quality_measure.casefold() in {"modularity", "modularity q"}:
+        elif quality_measure.casefold() in {"modularity","modularity q"}:
             self.nearest_neighbors = (
                 self.nearest_neighbors
                 or getattr(self, "min_samples", None)
@@ -1109,21 +901,15 @@ class FOSCX(BaseEstimator):
             )
             if self.data_ is None:
                 raise ValueError(
-                    "Data or a precomputed similarity graph must be provided for the "
-                    "Modularity Q measure, either via fit(y=...) or by passing a "
-                    "clustering object that exposes a _raw_data attribute."
+                    "Data or precomputed similarity graph must be provided for Modularity Q measure, either during FOSC fit() or by providing a clustering object with _raw_data attribute."
                 )
-            elif (
-                not self.nearest_neighbors
-                and getattr(self, "metric", None) != "precomputed_similarity"
-            ):
+            elif not self.nearest_neighbors and not getattr(self, "metric", None) == "precomputed_similarity":
                 raise ValueError(
-                    "For the Modularity Q measure, nearest_neighbors must be specified "
-                    "either during FOSCX initialisation or via a clustering object with "
-                    "min_samples or min_cluster_size attributes."
+                    "For Modularity Q measure, nearest_neighbors (number of nearest neighbors) must be specified, either during FOSC class initilization or by providing a clustering object with min_samples or min_cluster_size attributes."
                 )
             if self.metric is None:
                 self.metric = "euclidean"
+
             if self.keep_noise_quality is None:
                 self.keep_noise_quality = True
             self.cluster_tree_.compute_modularity(
@@ -1144,8 +930,7 @@ class FOSCX(BaseEstimator):
                 )
             elif not hasattr(self, "mst"):
                 raise ValueError(
-                    "PFCE measure requires the minimum spanning tree from the HDBSCAN "
-                    "clustering object (gen_min_span_tree=True)."
+                    "PFCE measure requires the minimum spanning tree from the HDBSCAN clustering object (gen_min_span_tree=True)."
                 )
             else:
                 if self.keep_noise_quality is None:
@@ -1158,44 +943,35 @@ class FOSCX(BaseEstimator):
                 self.cluster_tree_.compute_PFCE(
                     self.mst, min_cluster_size=min_cluster_size
                 )
-
-        elif quality_measure.casefold() in {"bcubed","b3"}:
+        
+        elif quality_measure.casefold() in {"b3"}:
             if self.GT_labels_ is None:
                 raise ValueError(
-                    "Semi-supervised measures such as B3 require partial labels; "
-                    "unlabeled observations should have a value of -1."
+                    "Semi-Supervised measures such as B3 require partial labels, where unlabled obseverations have a value of ``-1``."
                 )
             else:
-                self.cluster_tree_.compute_B3(GT_labels=self.GT_labels_)
+                self.cluster_tree_.compute_B3(GT_labels = self.GT_labels_)
                 if self.keep_noise_quality is None:
-                    # Noise has no ground-truth membership, so assigning it a B3
-                    # score is meaningless.
-                    self.keep_noise_quality = False
-
+                    self.keep_noise_quality = False # I think this should be false, it makes no sense to assign noise a B3 score
+        
         elif quality_measure.casefold() in {"constraints"}:
             if self.GT_labels_ is None and self.constraints_ is None:
                 raise ValueError(
-                    "Semi-supervised measures such as constraints require either partial "
-                    "labels (unlabeled observations = -1) or explicit must-link / "
-                    "cannot-link constraint arrays."
+                    "Semi-Supervised measures such as constraints require partial labels where unlabled obseverations have a value of ``-1``, or must-link and must-not-link constraints."
                 )
             else:
                 if self.constraints_ is None:
                     self.constraints_ = generate_pairwise_constraints_(self.GT_labels_)
-                self.cluster_tree_.compute_constraint_score(constraints=self.constraints_)
+                self.cluster_tree_.compute_constraint_score(constraints = self.constraints_)
                 if self.keep_noise_quality is None:
-                    # Noise trivially satisfies cannot-link constraints, so retaining
-                    # its quality is generally reasonable.
-                    self.keep_noise_quality = True
+                    self.keep_noise_quality = True #UHHHH maybe True, noise technically satisfies must-not-link constraints
+
 
         else:
-            #warnings.warn(
-            #    f"Quality measure {quality_measure!r} not recognised; "
-            #    "defaulting to 'stability'.",
-            #    stacklevel=2,
-            #)
-            #self.keep_noise_quality = False
-            #self.cluster_tree_.compute_stability(density=self.density)
-            raise ValueError(f"Quality measure {quality_measure!r} not recognised")
-        
+            warnings.warn(
+                f"Measure {quality_measure} not recognized, defaulting to 'Stability'"
+            )
+            self.keep_noise_quality = False
+            self.cluster_tree_.compute_stability(density=self.density)
+
         return None
