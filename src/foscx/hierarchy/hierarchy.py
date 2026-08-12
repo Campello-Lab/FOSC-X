@@ -503,7 +503,7 @@ class Cluster_Tree:
         
         return self.leaf_order[s:e] 
     
-    def compute_bounds(self):
+    def compute_bounds(self, force_no_noise: bool = False):
         """
         Compute LB, UB and related arrays for the instance tree.
     
@@ -522,24 +522,63 @@ class Cluster_Tree:
         LB, UB, terminals_in_subtree, is_terminal, nonnoise_leaf_count
         """
 
-        # make sure is_noise dtype is int8
         if not isinstance(self.is_noise, np.ndarray):
             self.is_noise = np.asarray(self.is_noise)
         if self.is_noise.dtype != np.int8:
             self.is_noise = self.is_noise.astype(np.int8)
-    
-        # call numba function
-        LB, UB, terminals_in_subtree, is_terminal, nonnoise_leaf_count = _compute_bounds(
-            self.parent, self.children_flat, self.children_off, self.is_noise
-        )
-    
-        # store on self
+
+        if force_no_noise:
+            is_noise_for_lb = self.is_noise.copy()
+            cf = self.children_flat
+            co = self.children_off
+            N = self.is_noise.shape[0]
+
+            for i in range(N):
+                s = int(co[i])
+                e = int(co[i + 1])
+                if e == s:
+                    continue  # actual leaf, handle below
+                
+                # Check if all children of this internal node are noise leaves
+                all_noise_leaf_children = True
+                for j in range(s, e):
+                    ch = int(cf[j])
+                    ch_is_leaf = (int(co[ch + 1]) == int(co[ch]))
+                    if not (ch_is_leaf and self.is_noise[ch] == 1):
+                        all_noise_leaf_children = False
+                        break
+                
+                if all_noise_leaf_children:
+                    # Promote these noise leaves to non-noise for LB purposes —
+                    # their parent is a noise-only parent, so they form an effective
+                    # terminal group with no real cluster siblings.
+                    for j in range(s, e):
+                        ch = int(cf[j])
+                        is_noise_for_lb[ch] = 0
+            # Compute bounds as if all nodes are non-noise: every structural
+            # leaf counts as a real terminal, giving correct LB/UB for the
+            # world where noise-leaf combinations are suppressed in the DP.
+            #is_noise_for_bounds = np.zeros(self.is_noise.shape[0], dtype=np.int8)
+            LB, UB_, terminals_in_subtree, is_terminal, nonnoise_leaf_count = _compute_bounds(
+                self.parent, self.children_flat, self.children_off, is_noise_for_lb
+            )
+            is_noise_for_bounds = self.is_noise
+            LB_, UB, terminals_in_subtree, is_terminal, nonnoise_leaf_count = _compute_bounds(
+                self.parent, self.children_flat, self.children_off, is_noise_for_bounds
+            )
+        else:
+            is_noise_for_bounds = self.is_noise
+
+            LB, UB, terminals_in_subtree, is_terminal, nonnoise_leaf_count = _compute_bounds(
+                self.parent, self.children_flat, self.children_off, is_noise_for_bounds
+            )
+
         self.LB = LB
         self.UB = UB
         self.terminals_in_subtree = terminals_in_subtree
         self.is_terminal = is_terminal
         self.nonnoise_leaf_count = nonnoise_leaf_count
-    
+
         return LB, UB, terminals_in_subtree, is_terminal, nonnoise_leaf_count
     
 

@@ -44,8 +44,10 @@ def B3_F_Measure(cluster_tree,labels,N_nodes):
 
         Fb3.append(Fb3temp)
 
+
     Fb3 = np.array(Fb3,dtype=float)
     Nl = sum(labels>-1)
+
     if Nl>0:
         Fb3 /= sum(labels>-1)
     else:

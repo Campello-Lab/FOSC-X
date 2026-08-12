@@ -124,22 +124,22 @@ def _condense_tree(hierarchy, min_cluster_size=10, max_cluster_size=np.inf, samp
             relabel[right] = parent_node
             parents[idx] = parent_node
             children[idx] = left
-            if not density:
-                lambda_value = right_d 
+            #if not density:
+            #    lambda_value = right_d 
             lambdas[idx] = lambda_value   # note: same parent lambda_value used for this child.
             idx += 1
 
         elif left_count < min_cluster_size and right_count >= min_cluster_size:
             relabel[right] = parent_node
-            if not density:
-                lambda_value = right_d 
+            #if not density:
+            #    lambda_value = right_d 
             idx = _eliminate_branch(left, parent_node, lambda_value, parents, children, lambdas, sizes, idx, ignore,
                                    hierarchy, num_points, density, min_cluster_size)
 
         elif left_count >= min_cluster_size and right_count < min_cluster_size:
             relabel[left] = parent_node
-            if not density:
-                lambda_value = left_d
+            #if not density:
+            #    lambda_value = left_d
             idx = _eliminate_branch(right, parent_node, lambda_value, parents, children, lambdas, sizes, idx, ignore,
                                    hierarchy, num_points, density, min_cluster_size)
 
@@ -151,13 +151,13 @@ def _condense_tree(hierarchy, min_cluster_size=10, max_cluster_size=np.inf, samp
                                     hierarchy, num_points, density, min_cluster_size)
             else:
                 idx = _eliminate_branch(
-                left, parent_node, 0.0,
+                left, parent_node, lambda_value,
                 parents, children, lambdas, sizes,
                 idx, ignore, hierarchy, num_points,
                 density, min_cluster_size
                 )
                 idx = _eliminate_branch(
-                    right, parent_node, 0.0,
+                    right, parent_node, lambda_value,
                     parents, children, lambdas, sizes,
                     idx, ignore, hierarchy, num_points,
                     density, min_cluster_size
