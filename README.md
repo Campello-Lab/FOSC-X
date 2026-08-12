@@ -127,7 +127,7 @@ pytest
 
 The associated paper is available on arXiv:
 
-[https://arxiv.org/](https://arxiv.org/)
+[https://arxiv.org/abs/2606.18972](https://arxiv.org/abs/2606.18972)
 
 To reproduce the results, scripts may be found in the ``experiments`` folder.
 
