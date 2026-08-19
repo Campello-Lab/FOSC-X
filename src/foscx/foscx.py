@@ -359,7 +359,7 @@ class FOSCX(BaseEstimator):
         self._validate_constructor_params()
 
 
-        if self.avoid_noise_clusters and ((self.kmin is not None and self.kmin >= 2) or self.kmax is not None):
+        if self.avoid_noise_clusters and ((self.kmin is not None and self.kmin > 2) or self.kmax is not None):
             warnings.warn("Constrained results may improve with avoid_noise_clusters=False")
 
         self._raw_tree_ = X
